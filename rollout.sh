@@ -34,13 +34,13 @@ cp "$INFRA/build.clj" "$REPO/build.clj"
 remote="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
 if [[ "$remote" == *github.com* ]]; then
   wfdir="$REPO/.github/workflows"
-  mkdir -p "$wfdir"
-  cp "$INFRA/workflows/release.yml" "$wfdir/release.yml"
+  src="release.yml"          # Clojars deploy, CLOJARS_* secrets
 else
   wfdir="$REPO/.gitea/workflows"
-  mkdir -p "$wfdir"
+  src="release-gitea.yml"    # private registry, MAVEN_* secrets
 fi
-cp "$INFRA/workflows/gitea-maven.yml" "$wfdir/gitea-maven.yml"
+mkdir -p "$wfdir"
+cp "$INFRA/workflows/$src" "$wfdir/release.yml"
 
 srcdirs='["src"]'
 [ -d "$REPO/resources" ] && srcdirs='["src" "resources"]'
