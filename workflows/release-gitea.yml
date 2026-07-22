@@ -10,6 +10,11 @@ on:
       - 'src/**'
       - 'resources/**'
       - 'deps.edn'
+      # Include the workflow itself, so a change to the release pipeline is
+      # exercised by the push that makes it instead of lying dormant until the
+      # next unrelated src commit. Without this a broken pipeline stays
+      # invisible until someone happens to ship library code.
+      - '.gitea/workflows/**'
   workflow_dispatch:
 
 concurrency:
@@ -26,9 +31,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: DeLaGuardo/setup-clojure@13.0
-        with:
-          cli: latest
+      # Installed from download.clojure.org rather than via
+      # DeLaGuardo/setup-clojure. That action calls the GitHub API
+      # unconditionally — pinning an explicit version does NOT avoid it — and
+      # authenticates with GITHUB_TOKEN, which under GITEA Actions is a Gitea
+      # token that github.com rejects with "Bad credentials". It then logs
+      # ::error:: WITHOUT failing its own step, so the job proceeds with no
+      # Clojure on PATH and dies later at the first `clojure` call with a bare
+      # exit 127, pointing nowhere near the real cause.
+      #
+      # Verified against hive-shape on 2026-07-22: run #1 (cli: latest) and
+      # run #2 (cli: 1.12.4.1618) both failed this way; run #3 with the direct
+      # install published 0.2.18 successfully.
+      #
+      # `clojure --version` is the assertion — a failed install fails HERE.
+      - name: Setup Clojure CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/clj-install.sh \
+            https://download.clojure.org/install/linux-install-1.12.4.1618.sh
+          chmod +x /tmp/clj-install.sh
+          sudo /tmp/clj-install.sh
+          clojure --version
 
       # Gate BEFORE the bump: a published pom is immutable, so a red suite
       # must not be able to mint a version, tag it and ship it.
