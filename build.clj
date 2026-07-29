@@ -20,9 +20,10 @@
    `:publish` is the ONLY thing that differs between packages — the task names
    are identical everywhere, so one CI workflow drives the whole fleet:
 
-     :clojars  public source jar   -> repo.clojars.org
-     :gitea    AOT no-source jar   -> private Gitea Maven registry
-     :none     builds, never ships (missing LICENSE, no remote, or not a library)
+     :clojars       public source jar   -> repo.clojars.org
+     :gitea         AOT no-source jar   -> private Gitea Maven registry
+     :gitea-source  source jar          -> private Gitea Maven registry
+     :none          builds, never ships (missing LICENSE, no remote, or not a library)
 
    Tasks (invoke with `clojure -T:build <task>`):
      clean           delete target/
@@ -375,9 +376,9 @@
         (println "Deployed" (str lib) version "to Clojars"))))
 
 (defn- deploy-gitea
-  "Publish the AOT jar to the private registry.
+  "Publish to the private registry. `build-jar!` decides AOT vs source.
    Env: MAVEN_URL, MAVEN_USERNAME, MAVEN_TOKEN — all required, no defaults."
-  []
+  [build-jar!]
   (let [url      (required-env "MAVEN_URL")
         username (required-env "MAVEN_USERNAME")
         token    (required-env "MAVEN_TOKEN")
@@ -385,7 +386,7 @@
                                                 (.getBytes (str username ":" token))))]
     (if (published? url auth)
       (println "Skip:" (str lib) version "already in private registry — bump VERSION to release.")
-      (do (jar-aot nil)
+      (do (build-jar! nil)
           ((requiring-resolve 'deps-deploy.deps-deploy/deploy)
            {:installer  :remote
             :artifact   jar-file
@@ -396,15 +397,17 @@
 (defn deploy
   "Build + publish according to version.edn :publish.
 
-   :clojars -> public source jar to repo.clojars.org
-   :gitea   -> AOT no-source jar to the private Gitea Maven registry
-   :none    -> no-op; the package is not shippable and CI stays green"
+   :clojars      -> public source jar to repo.clojars.org
+   :gitea        -> AOT no-source jar to the private Gitea Maven registry
+   :gitea-source -> source jar to the private Gitea Maven registry
+   :none         -> no-op; the package is not shippable and CI stays green"
   [_]
   (verify-license nil)
   (case publish-target
-    :clojars (deploy-clojars)
-    :gitea   (deploy-gitea)
-    :none    (println "Not shippable:" (str lib)
-                      "has :publish :none — nothing published.")
-    (throw (ex-info "version.edn :publish must be :clojars, :gitea or :none"
+    :clojars       (deploy-clojars)
+    :gitea         (deploy-gitea jar-aot)
+    :gitea-source  (deploy-gitea jar)
+    :none          (println "Not shippable:" (str lib)
+                            "has :publish :none — nothing published.")
+    (throw (ex-info "version.edn :publish must be :clojars, :gitea, :gitea-source or :none"
                     {:publish publish-target}))))
