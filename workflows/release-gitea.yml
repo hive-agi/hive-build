@@ -1,19 +1,24 @@
 name: release
 
-# Patch-bump and publish only when the push actually changes the library.
-# README / CI / test-only commits do not mint a version, because a published
-# pom is immutable on both Clojars and the private registry.
+# PINNED release: ./VERSION is tracked, so `bump` mints the next patch and the
+# run commits + tags it.
+#
+# Path-filtered to library sources so CI / README / test-only commits don't mint
+# an immutable pom.
+#
+# Secrets: MAVEN_USERNAME, MAVEN_TOKEN, MAVEN_URL — ORG-WIDE on hive-agi. NOT
+# GITEA_-prefixed (Gitea reserves that prefix).
+
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - 'src/**'
       - 'resources/**'
       - 'deps.edn'
-      # Include the workflow itself, so a change to the release pipeline is
-      # exercised by the push that makes it instead of lying dormant until the
-      # next unrelated src commit. Without this a broken pipeline stays
-      # invisible until someone happens to ship library code.
+      # Include the workflow itself so a change to the release pipeline is
+      # exercised by the very push that makes it, instead of lying dormant
+      # until the next unrelated src commit.
       - '.gitea/workflows/**'
   workflow_dispatch:
 
@@ -25,26 +30,35 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # pinned mode pushes the VERSION bump + tag
+    env:
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+      MAVEN_URL: ${{ secrets.MAVEN_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Installed from download.clojure.org rather than via
-      # DeLaGuardo/setup-clojure. That action calls the GitHub API
-      # unconditionally — pinning an explicit version does NOT avoid it — and
-      # authenticates with GITHUB_TOKEN, which under GITEA Actions is a Gitea
-      # token that github.com rejects with "Bad credentials". It then logs
-      # ::error:: WITHOUT failing its own step, so the job proceeds with no
-      # Clojure on PATH and dies later at the first `clojure` call with a bare
-      # exit 127, pointing nowhere near the real cause.
+      # REQUIRED. The Gitea runner image ships no JDK, and the Clojure CLI
+      # installs happily without one — so omitting this fails later at the
+      # first `clojure` call with "Couldn't find 'java'. Please set JAVA_HOME",
+      # pointing nowhere near the cause. Observed on hive-logic run #1.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # NOT DeLaGuardo/setup-clojure: that action calls the GitHub API
+      # unconditionally and authenticates with GITHUB_TOKEN, which under Gitea
+      # Actions is a *Gitea* token that github.com rejects. It logs ::error::
+      # without failing its own step, so the job continues with no Clojure on
+      # PATH and dies later with a bare exit 127, far from the cause.
       #
-      # Verified against hive-shape on 2026-07-22: run #1 (cli: latest) and
-      # run #2 (cli: 1.12.4.1618) both failed this way; run #3 with the direct
-      # install published 0.2.18 successfully.
-      #
-      # `clojure --version` is the assertion — a failed install fails HERE.
+      # The official installer touches no API, so it behaves identically on
+      # Gitea and GitHub. `clojure --version` is the assertion.
       - name: Setup Clojure CLI
         run: |
           set -euo pipefail
@@ -54,8 +68,32 @@ jobs:
           sudo /tmp/clj-install.sh
           clojure --version
 
-      # Gate BEFORE the bump: a published pom is immutable, so a red suite
-      # must not be able to mint a version, tag it and ship it.
+      # Give the resolver the private repo + credentials before any clojure cmd.
+      - name: Materialize private-registry resolution credentials
+        if: env.MAVEN_TOKEN != ''
+        run: |
+          # Mirror the clojure launcher's own resolution: $CLJ_CONFIG, else
+          # $XDG_CONFIG_HOME/clojure when set, else $HOME/.clojure.
+          CLJ_CONFIG="${CLJ_CONFIG:-${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/clojure}}"
+          CLJ_CONFIG="${CLJ_CONFIG:-$HOME/.clojure}"
+          mkdir -p "$CLJ_CONFIG" "$HOME/.m2"
+          cat > "$CLJ_CONFIG/deps.edn" <<'EOF'
+          {:mvn/repos {"hive-gitea" {:url "https://gitea.hive-mcp.com/api/packages/hive-agi/maven"}}}
+          EOF
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>hive-gitea</id>
+                <username>${MAVEN_USERNAME}</username>
+                <password>${MAVEN_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      # Gate BEFORE the bump: a published pom is immutable, so a red suite must
+      # not be able to mint a version, tag it and ship it.
       - name: Test
         run: |
           if [ -d test ]; then
@@ -69,20 +107,19 @@ jobs:
 
       - name: Commit and tag
         run: |
+          set -euo pipefail
           VER=$(cat VERSION)
           git config user.name  "hive-ci"
           git config user.email "ci@hive-agi.local"
           git add VERSION
-          # [skip ci] stops this push from retriggering the workflow.
-          git commit -m "chore(release): $VER [skip ci]"
-          # Annotated: `git push --follow-tags` ignores lightweight tags,
-          # which would publish the artifact and silently drop the tag.
-          git tag -a "v$VER" -m "release $VER"
+          git commit -m "chore(release): ${VER} [skip ci]"
+          # Annotated: `git push --follow-tags` ignores lightweight tags, which
+          # would publish the artifact and silently drop the tag.
+          git tag -a "v${VER}" -m "Release ${VER}"
           git push --follow-tags
 
+      # `deploy` reads version.edn :publish (:gitea). Idempotent — a re-run at a
+      # version already in the registry HEAD-checks and skips.
       - name: Deploy
-        env:
-          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
-          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
-          MAVEN_URL: ${{ secrets.MAVEN_URL }}
+        if: env.MAVEN_TOKEN != ''
         run: clojure -T:build deploy
