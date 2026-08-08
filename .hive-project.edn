@@ -1,0 +1,6 @@
+{:project-id "hive-build"
+ :parent "hive"
+ :description "Clojars publishing infrastructure for hive leaf libs. Each repos VERSION file is the version source of truth so the Clojars coord matches the git tag 1:1; ships as a separate clojars.yml alongside the existing tag-release workflow."
+ :language :clojure
+ :tags ["build" "release" "clojars" "infra" "tooling"] 
+ :carto {:source-roots ["dev" "src" "test"]}}
