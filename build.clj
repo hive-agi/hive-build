@@ -55,6 +55,14 @@
 (def ^:private src-dirs (:src-dirs cfg ["src"]))
 (def ^:private jar-file (format "target/%s-%s.jar" (name lib) version))
 
+(def ^:private elide-meta
+  "Metadata keys stripped from every AOT class file.
+
+   Docstrings, arglists and source coordinates ship as string constants in
+   bytecode; eliding them removes them from the published artifact. Override
+   with version.edn :aot/elide-meta; [] disables."
+  (:aot/elide-meta cfg [:doc :file :line :column :added :arglists]))
+
 ;; The pom's declared license is IMMUTABLE once published, on Clojars and on the
 ;; private registry alike. The fallback is deliberately absent: a package with no
 ;; :license in version.edn must not silently inherit someone else's terms.
@@ -128,6 +136,35 @@
                                        (slurp f))))))
         (mapcat #(file-seq (io/file %)) src-dirs)))
 
+(def ^:private zip-epoch
+  "1980-01-01T00:00:00Z — the earliest instant the ZIP format can represent."
+  315532800000)
+
+(defn- normalize-jar!
+  "Rewrite `path` in place with entries sorted by name and one fixed timestamp.
+
+   Contract: two builds of identical inputs on one host produce byte-identical
+   jars, so any difference between two copies of an artifact is content."
+  [path]
+  (let [src     (io/file path)
+        tmp     (io/file (str path ".norm"))
+        entries (with-open [zf (java.util.zip.ZipFile. src)]
+                  (into (sorted-map)
+                        (map (fn [^java.util.zip.ZipEntry e]
+                               [(.getName e)
+                                (with-open [in (.getInputStream zf e)]
+                                  (.readAllBytes in))]))
+                        (enumeration-seq (.entries zf))))]
+    (with-open [out (java.util.zip.ZipOutputStream. (io/output-stream tmp))]
+      (doseq [[entry-name ^bytes content] entries]
+        (.putNextEntry out (doto (java.util.zip.ZipEntry. ^String entry-name)
+                             (.setTime zip-epoch)))
+        (.write out content)
+        (.closeEntry out)))
+    (io/copy tmp src)
+    (.delete tmp)
+    path))
+
 (defn verify-license
   "Report whether ./LICENSE, version.edn :license and the src SPDX headers agree.
    Advisory: prints and returns findings, never fails the build."
@@ -156,6 +193,7 @@
   (write-pom)
   (b/copy-dir {:src-dirs src-dirs :target-dir class-dir})
   (b/jar {:class-dir class-dir :jar-file jar-file})
+  (normalize-jar! jar-file)
   (println "Built" (str lib) version "->" jar-file))
 
 ;; ── AOT no-source jar ──────────────────────────────────────────────────────
@@ -223,6 +261,9 @@
                             :src-dirs   (source-roots)
                             :ns-compile (into preload nses)
                             :class-dir  scratch}
+                     (seq elide-meta)
+                     (assoc :compiler-options {:elide-meta elide-meta})
+
                      (seq (:aot/java-opts cfg))
                      (assoc :java-opts (vec (:aot/java-opts cfg)))))
     (copy-own-classes! scratch nses)
@@ -230,6 +271,7 @@
       (b/copy-dir {:src-dirs (vec res) :target-dir class-dir}))
     (write-pom)
     (b/jar {:class-dir class-dir :jar-file jar-file})
+    (normalize-jar! jar-file)
     (println "Built AOT" (str lib) version "->" jar-file
              (str "(" (count nses) " ns, own .class only)"))))
 
