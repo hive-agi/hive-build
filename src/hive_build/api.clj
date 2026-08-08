@@ -57,8 +57,10 @@
 (defn- execute!
   [task {:keys [deploy-fn probe-registry?]}]
   (let [project (tools/read-project)
-        facts (tools/read-facts project (boolean probe-registry?))]
-    (run/run! tools/handlers (tools/context project deploy-fn)
+        overlay (when (plan/compiles? task project) (tools/overlay))
+        facts (tools/read-facts project {:probe-registry? (boolean probe-registry?)
+                                         :overlay overlay})]
+    (run/run! tools/handlers (tools/context project overlay deploy-fn)
               (plan/plan task project facts))))
 
 ;; ── Build ──────────────────────────────────────────────────────────────────

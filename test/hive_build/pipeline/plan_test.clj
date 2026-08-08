@@ -72,6 +72,28 @@
   (is (thrown? clojure.lang.ExceptionInfo
                (plan/plan :task/publish-to-npm (project :none) facts))))
 
+(deftest only-a-compiling-task-needs-the-local-overlay
+  (testing "a source-jar build must not depend on — or fail on — a developer's
+            gitignored local.deps.edn"
+    (is (not (plan/compiles? :task/jar (project :gitea))))
+    (is (not (plan/compiles? :task/clean (project :gitea))))
+    (is (plan/compiles? :task/jar-aot (project :clojars)))
+    (testing "install and deploy follow the target's artifact kind"
+      (is (plan/compiles? :task/deploy (project :gitea)))
+      (is (plan/compiles? :task/install (project :gitea)))
+      (is (not (plan/compiles? :task/deploy (project :clojars))))
+      (is (not (plan/compiles? :task/deploy (project :gitea-source))))
+      (is (not (plan/compiles? :task/deploy (project :none)))))))
+
+(deftest compiles-agrees-with-the-plan-it-describes
+  (testing "the overlay is read exactly when a plan contains a compile step"
+    (doseq [target-id (publish/target-ids)
+            task [:task/clean :task/jar :task/jar-aot :task/install :task/deploy]]
+      (let [p (plan/plan task (project target-id) facts)
+            has-compile? (some #(= :step/compile (:step/kind %)) p)]
+        (is (= (boolean has-compile?) (plan/compiles? task (project target-id)))
+            (str task " / " target-id))))))
+
 ;; ── The build plans ───────────────────────────────────────────────────────
 
 (deftest the-source-jar-plan-is-exactly-this

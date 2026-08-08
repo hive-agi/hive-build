@@ -12,8 +12,12 @@
 (def default-elide-meta
   "Metadata keys stripped from every AOT class file unless version.edn
    overrides :aot/elide-meta. Docstrings, arglists and source coordinates ship
-   as string constants in bytecode."
-  [:doc :file :line :column :added :arglists])
+   as string constants in bytecode.
+
+   :column is deliberately absent. Eliding it alongside these keys makes the
+   compiler fail on some dependency graphs, and a column number on its own
+   discloses nothing that :file and :line do not."
+  [:doc :file :line :added :arglists])
 
 (def source-extensions
   #{".clj" ".cljc" ".cljs"})

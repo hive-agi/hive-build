@@ -78,12 +78,24 @@
                           " -> " jar-file
                           " (" (count namespaces) " ns, own .class only)"))])))
 
-(defn- artifact-task
+(defn artifact-task
   "The build task that produces `kind`."
   [kind]
   (case kind
     :artifact/aot :task/jar-aot
     :artifact/source :task/jar))
+
+(defn compiles?
+  "True when `task` on `project` will AOT-compile.
+
+   Only a compiling task consults ./local.deps.edn, so a source-jar build never
+   depends on — or fails on — a developer's local overlay file."
+  [task project]
+  (case task
+    :task/jar-aot true
+    (:task/install :task/deploy)
+    (= :artifact/aot (:target/artifact-kind (publish/target (:project/target-id project))))
+    false))
 
 (defmethod steps :task/install
   [_ project facts]

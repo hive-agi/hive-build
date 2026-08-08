@@ -18,9 +18,17 @@
     (when (.isFile f) (slurp f))))
 
 (defn read-edn
-  "Parsed EDN at `path`, or nil when the file is absent."
+  "Parsed EDN at `path`, or nil when the file is absent.
+
+   A parse failure is rethrown naming the file: the underlying message says
+   only what was wrong, never where, and a build tool reads several EDN files."
   [path]
-  (some-> (read-text path) edn/read-string))
+  (when-let [text (read-text path)]
+    (try
+      (edn/read-string text)
+      (catch Exception e
+        (throw (ex-info (str "could not parse " path ": " (ex-message e))
+                        {:path path} e))))))
 
 (defn write-text!
   [path text]

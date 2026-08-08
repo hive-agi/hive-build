@@ -57,9 +57,12 @@
 
 (defn read-facts
   "Everything from the filesystem and the registry that `project`'s plan
-   depends on. `probe-registry?` is false for tasks that never publish, so a
-   local build never touches the network."
-  [project probe-registry?]
+   depends on.
+
+   `probe-registry?` is false for tasks that never publish, so a local build
+   never touches the network. `overlay` is the parsed ./local.deps.edn, or nil
+   for a task that does not compile."
+  [project {:keys [probe-registry? overlay]}]
   (let [src-dirs (:project/src-dirs project)
         roots (project/classify-roots src-dirs (io'/files-by-dir src-dirs))
         sources (into [] (comp (mapcat io'/files-under)
@@ -68,7 +71,7 @@
                       (:facts/source-roots roots))]
     (assoc roots
            :facts/namespaces (into [] (keep io'/declared-ns) sources)
-           :facts/preload (vec (:aot/preload (overlay)))
+           :facts/preload (vec (:aot/preload overlay))
            :facts/published? (boolean
                               (when probe-registry?
                                 (published? project
@@ -225,11 +228,12 @@
    (fn [_ctx step] (println (:step/message step)))})
 
 (defn context
-  "The execution context for `project`: the overlay the AOT compile needs, and
-   the deploy function, which is injected so a release can be exercised without
-   a registry."
-  ([project] (context project nil))
-  ([project deploy-fn]
+  "The execution context for `project`: the overlay an AOT compile needs (nil
+   for tasks that do not compile), and the deploy function, which is injected
+   so a release can be exercised without a registry."
+  ([project] (context project nil nil))
+  ([project overlay] (context project overlay nil))
+  ([project overlay deploy-fn]
    {:ctx/project project
-    :ctx/overlay (overlay)
+    :ctx/overlay overlay
     :ctx/deploy-fn deploy-fn}))
