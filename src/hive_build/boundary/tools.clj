@@ -167,13 +167,16 @@
 
    :step/compile
    (fn [ctx step]
+     ;; :compile-opts, NOT :compiler-options — tools.build ignores unknown keys
+     ;; silently, so the wrong spelling binds *compiler-options* to nil and
+     ;; elides nothing while every build still reports success.
      (b/compile-clj
       (cond-> {:basis (aot-basis (:ctx/overlay ctx))
                :src-dirs (:step/src-dirs step)
                :ns-compile (:step/ns-compile step)
                :class-dir (:step/class-dir step)}
         (seq (:step/elide-meta step))
-        (assoc :compiler-options {:elide-meta (:step/elide-meta step)})
+        (assoc :compile-opts {:elide-meta (:step/elide-meta step)})
 
         (seq (:step/java-opts step))
         (assoc :java-opts (:step/java-opts step)))))
