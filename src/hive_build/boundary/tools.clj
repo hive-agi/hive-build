@@ -5,12 +5,13 @@
    This is the only namespace that knows tools.build and deps-deploy exist."
   (:require [clojure.string :as str]
             [clojure.tools.build.api :as b]
+            [hive-build.boundary.archive :as archive]
+            [hive-build.boundary.load-verify :as load-verify]
             [hive-build.collect.io :as io']
             [hive-build.promote.naming :as naming]
             [hive-build.promote.pom :as pom]
             [hive-build.promote.project :as project]
-            [hive-build.promote.publish :as publish]
-            [hive-build.boundary.archive :as archive]))
+            [hive-build.promote.publish :as publish]))
 
 ;; ── Context ────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,10 @@
 
    :step/copy-classes
    (fn [_ctx step]
-     (archive/copy-own-classes! (:step/from step) (:step/to step) (:step/prefixes step)))
+     (archive/copy-own-classes! (:step/from step)
+                                (:step/to step)
+                                (:step/prefixes step)
+                                (:step/files step)))
 
    :step/copy-dir
    (fn [_ctx step]
@@ -210,6 +214,14 @@
 
    :step/normalize
    (fn [_ctx step] (archive/normalize-jar! (:step/path step)))
+
+   :step/verify-load
+   (fn [ctx step]
+     (load-verify/verify!
+      {:basis (pom-basis (:ctx/project ctx))
+       :jar-file (:step/jar-file step)
+       :namespaces (:step/namespaces step)
+       :java-opts (:step/java-opts step)}))
 
    :step/publish
    (fn [ctx step]

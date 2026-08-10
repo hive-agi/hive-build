@@ -73,6 +73,7 @@
        :project/scm-url          (:scm-url cfg)
        :project/elide-meta       (vec (:aot/elide-meta cfg default-elide-meta))
        :project/pom-exclude-deps (set (:pom-exclude-deps cfg []))
+       :project/package-protocols (vec (:aot/package-protocols cfg []))
        :project/aot-java-opts    (vec (:aot/java-opts cfg []))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])

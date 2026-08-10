@@ -108,6 +108,10 @@
     (testing "no prefixes admits nothing"
       (is (not (naming/own-class? [] "hive_build/schema__init.class"))))))
 
+(deftest a-protocol-symbol-names-its-generated-interface
+  (is (= "hive_addon/protocol/IAddon.class"
+         (naming/protocol->class-path 'hive-addon.protocol/IAddon))))
+
 (deftest own-class-is-prefix-not-substring
   (testing "a host namespace that merely contains an own prefix is excluded"
     (is (not (naming/own-class? ["hive_build"] "vendor/hive_build/x__init.class")))))

@@ -54,6 +54,11 @@
   [path]
   (-> (str path) (str/replace "/" ".") (str/replace "_" "-") symbol))
 
+(defn protocol->class-path
+  "The generated JVM interface class for qualified protocol symbol `protocol`."
+  [protocol]
+  (str (ns->path (symbol (namespace protocol))) "/" (name protocol) ".class"))
+
 (m/=> own-class? [:=> [:cat [:sequential :string] :string] :boolean])
 
 (defn own-class?
@@ -74,3 +79,4 @@
 (m/=> pom-url [:=> [:cat [:string {:min 1}] s/Coordinate] [:string {:min 1}]])
 (m/=> ns->path [:=> [:cat s/NsSymbol] [:string {:min 1}]])
 (m/=> path->ns [:=> [:cat [:string {:min 1}]] :symbol])
+(m/=> protocol->class-path [:=> [:cat s/LibSymbol] [:string {:min 1}]])

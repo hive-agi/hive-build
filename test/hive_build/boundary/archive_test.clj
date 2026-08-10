@@ -1,6 +1,7 @@
 (ns hive-build.boundary.archive-test
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
+            [clojure.tools.build.api :as b]
             [hive-build.boundary.archive :as archive])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)
@@ -23,6 +24,53 @@
 
 (defn- bytes-of [path]
   (seq (Files/readAllBytes (.toPath (io/file path)))))
+
+(def fixture-source
+  "(ns s0.fixture)\n(defn secret \"S0-DOCSTRING-MARKER\" [x] (+ x 1))\n")
+
+(defn- fixture-layout [root]
+  {:root root
+   :src-dir (str root "/src")
+   :class-dir (str root "/classes")
+   :jar-file (str root "/fixture.jar")})
+
+(defn- compile-fixture!
+  [{:keys [src-dir class-dir]} elide-meta]
+  (let [source (io/file src-dir "s0/fixture.clj")
+        basis (b/create-basis {:project "deps.edn" :extra {:paths [src-dir]}})]
+    (io/make-parents source)
+    (spit source fixture-source)
+    (b/compile-clj
+     (cond-> {:basis basis
+              :src-dirs [src-dir]
+              :ns-compile ['s0.fixture]
+              :class-dir class-dir}
+       elide-meta (assoc :compile-opts {:elide-meta elide-meta})))
+    basis))
+
+(defn- init-class-text [{:keys [class-dir]}]
+  (String. ^bytes (Files/readAllBytes
+                   (.toPath (io/file class-dir "s0/fixture__init.class")))
+           "ISO-8859-1"))
+
+(defn- build-raw-fixture-jar!
+  [{:keys [class-dir jar-file src-dir] :as layout}]
+  (b/delete {:path class-dir})
+  (let [basis (compile-fixture! layout [:doc :file :line :added :arglists])]
+    (b/write-pom {:class-dir class-dir
+                  :lib 's0/fixture
+                  :version "1.0.0"
+                  :basis basis
+                  :src-dirs [src-dir]})
+    (b/jar {:class-dir class-dir :jar-file jar-file})
+    jar-file))
+
+(defn- await-next-wall-clock-second! []
+  (let [second (quot (System/currentTimeMillis) 1000)]
+    (loop []
+      (when (= second (quot (System/currentTimeMillis) 1000))
+        (Thread/sleep 10)
+        (recur)))))
 
 (def sample
   [["b/second.clj" "(ns b.second)" 1700000000000]
@@ -99,6 +147,35 @@
       (archive/normalize-jar! two)
       (is (= (bytes-of one) (bytes-of two))))))
 
+(deftest real-builds-distinguish-elision-on-from-off
+  (testing "compile actual Clojure: a captured option map cannot prove elision"
+    (let [dir (temp-dir)
+          on (fixture-layout (str dir "/on"))
+          off (fixture-layout (str dir "/off"))]
+      (compile-fixture! on [:doc :file :line :added :arglists])
+      (compile-fixture! off nil)
+      (let [elided (init-class-text on)
+            control (init-class-text off)]
+        (is (not (.contains elided "S0-DOCSTRING-MARKER")))
+        (is (not (.contains elided "arglists")))
+        (is (.contains control "S0-DOCSTRING-MARKER"))
+        (is (.contains control "arglists"))))))
+
+(deftest two-real-builds-normalize-to-identical-jars
+  (testing "run compile, write-pom and jar twice; prove the control differs"
+    (let [dir (temp-dir)
+          layout (fixture-layout (str dir "/build"))
+          first (str dir "/first.jar")
+          second (str dir "/second.jar")]
+      (io/copy (io/file (build-raw-fixture-jar! layout)) (io/file first))
+      (await-next-wall-clock-second!)
+      (io/copy (io/file (build-raw-fixture-jar! layout)) (io/file second))
+      (is (not= (bytes-of first) (bytes-of second))
+          "the two real tools.build outputs must differ before normalization")
+      (archive/normalize-jar! first)
+      (archive/normalize-jar! second)
+      (is (= (bytes-of first) (bytes-of second))))))
+
 (deftest normalization-never-decodes-binary-content
   (testing "a class file passed through a text rewrite would be corrupted"
     (let [path (str (temp-dir) "/x.jar")
@@ -165,10 +242,15 @@
     (touch! (str from "/hive_thing/core__init.class"))
     (touch! (str from "/hive_thing/core$fn__1.class"))
     (touch! (str from "/host_lib/protocol__init.class"))
+    (touch! (str from "/host_lib/IHost.class"))
     (touch! (str from "/hive_thing/core.clj"))
-    (let [copied (archive/copy-own-classes! from to ["hive_thing/core"])]
-      (is (= #{"hive_thing/core__init.class" "hive_thing/core$fn__1.class"} (set copied)))
+    (let [copied (archive/copy-own-classes! from to ["hive_thing/core"]
+                                            ["host_lib/IHost.class"])]
+      (is (= #{"hive_thing/core__init.class" "hive_thing/core$fn__1.class"
+               "host_lib/IHost.class"}
+             (set copied)))
       (is (.exists (io/file to "hive_thing/core__init.class")))
+      (is (.exists (io/file to "host_lib/IHost.class")))
       (testing "the preloaded host class stays behind"
         (is (not (.exists (io/file to "host_lib/protocol__init.class")))))
       (testing "and so does the source that was compiled"

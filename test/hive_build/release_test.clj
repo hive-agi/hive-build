@@ -87,8 +87,8 @@
   (let [{:keys [steps published]} (trace :task/deploy cfg facts)]
     (testing "the effects, in order"
       (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir
-              :step/write-pom :step/jar :step/normalize :step/announce
-              :step/publish :step/announce]
+              :step/write-pom :step/jar :step/normalize :step/verify-load
+              :step/announce :step/publish :step/announce]
              (mapv :step/kind steps))))
     (testing "only resources are copied — no source directory is packaged"
       (is (= ["resources"] (:step/src-dirs (nth steps 3)))))

@@ -29,6 +29,7 @@
           :project/scm-url "https://github.com/hive-agi/hive-thing"
           :project/elide-meta [:doc :file :line]
           :project/pom-exclude-deps #{}
+          :project/package-protocols []
           :project/aot-java-opts []}
          overrides))
 
@@ -109,7 +110,7 @@
 
 (deftest the-aot-jar-plan-is-exactly-this
   (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir
-          :step/write-pom :step/jar :step/normalize :step/announce]
+          :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
          (kinds (plan/plan :task/jar-aot (project :gitea) facts)))))
 
 (deftest the-aot-jar-copies-only-resource-roots
@@ -122,7 +123,7 @@
 (deftest a-project-with-no-resources-has-no-copy-step
   (let [p (plan/plan :task/jar-aot (project :gitea) (assoc facts :facts/resource-roots []))]
     (is (= [:step/clean :step/compile :step/copy-classes
-            :step/write-pom :step/jar :step/normalize :step/announce]
+            :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
            (kinds p)))))
 
 ;; ── The leak guard ────────────────────────────────────────────────────────
@@ -136,7 +137,20 @@
              (:step/ns-compile compile-step))))
     (testing "and its classes are not admitted to the jar"
       (is (= ["hive_thing/core" "hive_thing/impl"] (:step/prefixes copy-step)))
+      (is (= [] (:step/files copy-step)))
       (is (not-any? #(str/includes? % "host") (:step/prefixes copy-step))))))
+
+(deftest explicitly-packaged-protocol-interfaces-enter-the-jar
+  (let [p (plan/plan :task/jar-aot
+                     (project :gitea
+                              :project/package-protocols
+                              ['hive-addon.protocol/IAddon])
+                     facts)
+        compile-step (step-of p :step/compile)
+        copy-step (step-of p :step/copy-classes)]
+    (is (= 'hive-addon.protocol (first (:step/ns-compile compile-step))))
+    (is (= ["hive_addon/protocol/IAddon.class"] (:step/files copy-step)))
+    (is (not-any? #(str/includes? % "hive_addon") (:step/prefixes copy-step)))))
 
 (tc/defspec no-preloaded-namespace-ever-reaches-the-jar 200
   (prop/for-all [own (gen/vector-distinct (gen/elements '[a.one a.two b.three]) {:max-elements 3})
@@ -144,9 +158,12 @@
                                               {:max-elements 3})]
     (let [p (plan/plan :task/jar-aot (project :gitea)
                        (assoc facts :facts/namespaces (vec own) :facts/preload (vec preload)))
-          prefixes (:step/prefixes (step-of p :step/copy-classes))
+          copy-step (step-of p :step/copy-classes)
+          prefixes (:step/prefixes copy-step)
+          files (:step/files copy-step)
           compiled (:step/ns-compile (step-of p :step/compile))]
       (and (= (count prefixes) (count own))
+           (empty? files)
            ;; every preloaded ns is compiled
            (every? (set compiled) preload)
            ;; and none of them is a packaging prefix
@@ -165,6 +182,17 @@
     (is (= [:doc] (:step/elide-meta step)))
     (is (= ["-Xmx2g"] (:step/java-opts step)))
     (is (= "target/aot-classes" (:step/class-dir step)))))
+
+(deftest the-built-aot-jar-is-verified-on-its-declared-classpath
+  (let [p (plan/plan :task/jar-aot
+                     (project :gitea :project/aot-java-opts ["--add-modules=x"])
+                     facts)
+        step (step-of p :step/verify-load)]
+    (is (= "target/hive-thing-1.2.3.jar" (:step/jar-file step)))
+    (is (= ['hive-thing.core 'hive-thing.impl] (:step/namespaces step)))
+    (is (= ["--add-modules=x"] (:step/java-opts step)))
+    (is (< (index-of p :step/normalize) (index-of p :step/verify-load)))
+    (is (< (index-of p :step/verify-load) (index-of p :step/announce)))))
 
 ;; ── The publish decision ──────────────────────────────────────────────────
 

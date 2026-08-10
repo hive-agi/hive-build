@@ -47,8 +47,9 @@
 (defmethod steps :task/jar-aot
   [_ project facts]
   (let [{:project/keys [target-dir class-dir scratch-dir jar-file
-                        elide-meta aot-java-opts]} project
-        {:facts/keys [source-roots resource-roots namespaces preload]} facts]
+                        elide-meta package-protocols aot-java-opts]} project
+        {:facts/keys [source-roots resource-roots namespaces preload]} facts
+        protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
     (into []
           (remove nil?)
           [{:step/kind :step/clean :step/path target-dir}
@@ -56,7 +57,8 @@
            ;; against runtime-only host protocols resolves.
            {:step/kind :step/compile
             :step/src-dirs source-roots
-            :step/ns-compile (into (vec preload) namespaces)
+            :step/ns-compile (into [] (distinct)
+                                   (concat protocol-namespaces preload namespaces))
             :step/class-dir scratch-dir
             :step/elide-meta elide-meta
             :step/java-opts aot-java-opts}
@@ -66,7 +68,8 @@
            {:step/kind :step/copy-classes
             :step/from scratch-dir
             :step/to class-dir
-            :step/prefixes (mapv naming/ns->path namespaces)}
+            :step/prefixes (mapv naming/ns->path namespaces)
+            :step/files (mapv naming/protocol->class-path package-protocols)}
            (when (seq resource-roots)
              {:step/kind :step/copy-dir
               :step/src-dirs (vec resource-roots)
@@ -74,6 +77,10 @@
            {:step/kind :step/write-pom}
            {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
            {:step/kind :step/normalize :step/path jar-file}
+           {:step/kind :step/verify-load
+            :step/jar-file jar-file
+            :step/namespaces namespaces
+            :step/java-opts aot-java-opts}
            (announce (str "Built AOT " (label project) " " (released project)
                           " -> " jar-file
                           " (" (count namespaces) " ns, own .class only)"))])))

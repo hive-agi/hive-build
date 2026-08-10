@@ -20,6 +20,7 @@
    :publish :gitea
    :aot/java-opts ["-Xmx2g"]
    :aot/elide-meta [:doc]
+   :aot/package-protocols ['hive-addon.protocol/IAddon]
    :pom-exclude-deps ['some/host-lib]})
 
 ;; ── Synthesized from the schemas ───────────────────────────────────────────
@@ -46,6 +47,7 @@
       (is (= "target/hive-thing-1.2.3.jar" (:project/jar-file p)))
       (is (= project/default-elide-meta (:project/elide-meta p)))
       (is (= #{} (:project/pom-exclude-deps p)))
+      (is (= [] (:project/package-protocols p)))
       (is (= [] (:project/aot-java-opts p))))
     (testing "a package says nothing about publishing until it opts in"
       (is (= :none (:project/target-id p))))
@@ -65,6 +67,7 @@
            (:project/license p)))
     (is (= [:doc] (:project/elide-meta p)))
     (is (= #{'some/host-lib} (:project/pom-exclude-deps p)))
+    (is (= ['hive-addon.protocol/IAddon] (:project/package-protocols p)))
     (is (= ["-Xmx2g"] (:project/aot-java-opts p)))))
 
 (deftest elide-meta-can-be-disabled-but-not-by-accident

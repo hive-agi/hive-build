@@ -67,17 +67,23 @@
 
 (defn copy-own-classes!
   "Copy every class under `from` that `naming/own-class?` accepts for
-   `prefixes` into `to`, preserving relative paths. Returns the paths copied."
-  [from to prefixes]
-  (let [root (io/file from)
-        root-path (.toPath root)]
-    (into []
-          (keep (fn [^java.io.File f]
-                  (when (.isFile f)
-                    (let [rel (relative-path root-path f)]
-                      (when (naming/own-class? prefixes rel)
-                        (let [dest (io/file to rel)]
-                          (io/make-parents dest)
-                          (io/copy f dest)
-                          rel))))))
-          (file-seq root))))
+   `prefixes`, plus exact `files`, into `to`, preserving relative paths.
+   Exact files are the explicit escape hatch for generated protocol interfaces;
+   no other foreign class may enter the jar. Returns the paths copied."
+  ([from to prefixes]
+   (copy-own-classes! from to prefixes []))
+  ([from to prefixes files]
+   (let [root (io/file from)
+         root-path (.toPath root)
+         exact (set files)]
+     (into []
+           (keep (fn [^java.io.File f]
+                   (when (.isFile f)
+                     (let [rel (relative-path root-path f)]
+                       (when (or (naming/own-class? prefixes rel)
+                                 (contains? exact rel))
+                         (let [dest (io/file to rel)]
+                           (io/make-parents dest)
+                           (io/copy f dest)
+                           rel))))))
+           (file-seq root)))))

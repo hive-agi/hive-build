@@ -106,6 +106,7 @@
    [:project/scm-url [:maybe :string]]
    [:project/elide-meta [:vector :keyword]]
    [:project/pom-exclude-deps [:set :symbol]]
+   [:project/package-protocols [:vector LibSymbol]]
    [:project/aot-java-opts [:vector :string]]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
@@ -159,7 +160,8 @@
      [:step/kind [:= :step/copy-classes]]
      [:step/from [:string {:min 1}]]
      [:step/to [:string {:min 1}]]
-     [:step/prefixes [:vector [:string {:min 1}]]]]]
+     [:step/prefixes [:vector [:string {:min 1}]]]
+     [:step/files [:vector [:string {:min 1}]]]]]
 
    [:step/copy-dir
     [:map {:closed true}
@@ -181,6 +183,13 @@
     [:map {:closed true}
      [:step/kind [:= :step/normalize]]
      [:step/path [:string {:min 1}]]]]
+
+   [:step/verify-load
+    [:map {:closed true}
+     [:step/kind [:= :step/verify-load]]
+     [:step/jar-file [:string {:min 1}]]
+     [:step/namespaces [:vector NsSymbol]]
+     [:step/java-opts [:vector :string]]]]
 
    [:step/publish
     [:map {:closed true}
