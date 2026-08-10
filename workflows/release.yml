@@ -10,6 +10,12 @@ on:
       - 'src/**'
       - 'resources/**'
       - 'deps.edn'
+      # The suite gates the bump/deploy below, so a test-only change MUST be
+      # able to trigger a run: excluded here, a test fix can never be validated
+      # and a test-only regression stays invisible until an unrelated src push
+      # trips over it.
+      - 'test/**'
+      - 'tests.edn'
   workflow_dispatch:
 
 concurrency:
