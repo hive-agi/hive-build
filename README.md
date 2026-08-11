@@ -1,61 +1,59 @@
-# hive-build — Clojars publishing infra for hive leaf libs
+# hive-build — the canonical release library for hive Clojure packages
 
-Version source of truth is each repo's existing **`VERSION` file** (the same value
-its `release.yml` tags as `v{VERSION}`), so the Clojars coord matches the git-tag
-coord 1:1 — migrating a consumer is `{:git/tag "v0.5.1"}` → `{:mvn/version "0.5.1"}`.
-If a repo has no `VERSION` file, build.clj falls back to datahike-style
-`0.{minor}.{git-commit-count}` (minor from `version.edn`, needs CI `fetch-depth: 0`).
+`hive-build.api` is the shared `tools.build` entrypoint every hive package uses
+to jar, verify, version and publish. Consumers add one alias and get the whole
+pipeline — there is **no per-repo `build.clj`**.
 
-This publishing runs *alongside* the existing GitHub tag-release `release.yml` — it
-lives in a separate `clojars.yml` and does not replace it.
-
-## Files
-- `build.clj` — generic `tools.build` script (jar / install / deploy). Reads
-  per-repo coordinates from `./version.edn`. Copied verbatim into each repo.
-- `version.edn` (per repo) — `{:lib :minor :license :scm-url :src-dirs}`.
-- `workflows/release.yml` — GitHub Action: publishes on every push to `main`.
-- `rollout.sh` — installs the above into a target leaf-lib repo.
-
-## One-time Clojars setup
-1. Clojars account → **Deploy Tokens** → create a token.
-2. Verify the group **`io.github.hive-agi`**: create a public GitHub repo
-   `hive-agi/clojars-io.github.hive-agi` (Clojars checks org ownership). This
-   group matches the existing `:git/tag` coord names, so consumers swap
-   `{:git/tag ..}` → `{:mvn/version "0.MINOR.NNNN"}` with no rename.
-3. GitHub repo secrets: `CLOJARS_USERNAME`, `CLOJARS_DEPLOY_TOKEN`.
-
-## Per-repo (leaf libs only)
-A lib is publishable only if every **runtime** `:deps` entry is `:mvn/version`.
-`:git/tag` / `:local/root` runtime deps cannot go into a Maven pom — keep those
-in `:test`/`:dev` aliases (which are excluded from the pom) or the consumer's
-graph will be incomplete.
-
-```bash
-./rollout.sh ../hive-help hive-help 1     # drops build.clj + workflow + version.edn
-# add the :build alias to deps.edn (rollout prints it)
-(cd ../hive-help && clojure -T:build install)   # verify locally (~/.m2), no network
+```clojure
+;; deps.edn, under :aliases
+:build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.0"}}
+        :jvm-opts ["-Xmx1g"]
+        :ns-default hive-build.api}
 ```
 
-## Publish
-```bash
-export CLOJARS_USERNAME=... CLOJARS_PASSWORD=<token>
-clojure -T:build deploy
-```
-Or just push to `main` and let the Action do it.
+Version source of truth is each repo's **`VERSION` file** — the same value its
+release workflow tags as `v{VERSION}` — so the Maven coord matches the git-tag
+coord 1:1. Per-repo coordinates (`:lib :minor :license :scm-url :src-dirs
+:publish`) live in `./version.edn`.
 
 ## Tasks
-| `clojure -T:build <task>` | effect |
-|---|---|
-| `jar`     | build source jar under `target/` |
-| `install` | jar + install to local `~/.m2` (offline verification) |
-| `deploy`  | jar + push to Clojars (needs token env) |
 
-## Migrating consumers off git coords
-Once a lib is on Clojars, replace in downstream `deps.edn`:
-`io.github.hive-agi/hive-help {:git/tag "v0.1.0" :git/sha "…"}` →
-`io.github.hive-agi/hive-help {:mvn/version "0.1.NNNN"}`.
-`bb-depsolve upgrade --apply` then keeps the `:mvn/version` pins current.
+`clojure -T:build <task>`:
 
-## Not covered (yet)
-- AOT / uberjars (these are source jars — right for libs).
-- Repos with git/local runtime deps (hive-knowledge, hive-mcp): app-like, keep on git coords.
+| task             | effect                                                            |
+|------------------|------------------------------------------------------------------|
+| `clean`          | remove `target/`                                                  |
+| `jar`            | build a source jar under `target/`                               |
+| `jar-aot`        | AOT jar (apps, not libs)                                          |
+| `install`        | jar + install to local `~/.m2` (offline verification, no network)|
+| `bump`           | read/write `VERSION` — `bump :level :patch\|:minor\|:major`       |
+| `verify-license` | assert the declared license is present and consistent            |
+| `kondo`          | clj-kondo gate                                                    |
+| `deploy`         | jar + publish current `VERSION` per `version.edn :publish`        |
+
+`deploy` publishes to `:clojars`, `:gitea`, `:gitea-source`, or `:none` as
+declared in `version.edn`, and is idempotent — a version already in the target
+registry HEAD-checks and skips.
+
+## Publishability
+
+A library is publishable only if every **runtime** `:deps` entry is
+`:mvn/version`. `:git/tag` / `:git/sha` / `:local/root` runtime coords cannot
+form a complete Maven pom — keep those in `:test` / `:dev` aliases, which are
+excluded from the pom.
+
+## Scaffolding a new repo
+
+Use **[`bb-build`](../bb-build)** — a lein-new-style generator that writes a
+repo's `version.edn` + release workflow and prints the `:build` alias above:
+
+```bash
+bb-build new hive-help ../hive-help              # public -> Clojars
+bb-build new hive-premium ../hive-premium --kind gitea   # private -> Gitea Maven
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Its security-free build tooling is safe to be
+public; it sits on the release path of every hive package, so its dependency
+surface (`tools.build`, `deps-deploy`, `malli`) is deliberately small.
