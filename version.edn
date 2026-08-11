@@ -2,4 +2,4 @@
  :license  {:name "MIT" :url "https://opensource.org/licenses/MIT"}
  :scm-url  "https://github.com/hive-agi/hive-build"
  :src-dirs ["src"]
- :publish  :gitea-source}
+ :publish  :clojars}
