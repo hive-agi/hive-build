@@ -87,11 +87,13 @@
   (let [{:keys [steps published]} (trace :task/deploy cfg facts)]
     (testing "the effects, in order"
       (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir
-              :step/write-pom :step/jar :step/normalize :step/verify-load
-              :step/announce :step/publish :step/announce]
+              :step/stamp-manifest :step/write-pom :step/jar :step/normalize
+              :step/verify-load :step/announce :step/publish :step/announce]
              (mapv :step/kind steps))))
     (testing "only resources are copied — no source directory is packaged"
       (is (= ["resources"] (:step/src-dirs (nth steps 3)))))
+    (testing "the addon manifest is stamped with the version being released"
+      (is (= "1.2.3" (:step/version (nth steps 4)))))
     (testing "the host namespace compiles but is not packaged"
       (is (= ['host.protocol 'hive-thing.core 'hive-thing.impl]
              (:step/ns-compile (nth steps 1))))
@@ -107,8 +109,8 @@
 
 (deftest a-public-release-ships-source
   (let [{:keys [steps published]} (trace :task/deploy (assoc cfg :publish :clojars) facts)]
-    (is (= [:step/clean :step/write-pom :step/copy-dir :step/jar :step/normalize
-            :step/announce :step/publish :step/announce]
+    (is (= [:step/clean :step/write-pom :step/copy-dir :step/stamp-manifest :step/jar
+            :step/normalize :step/announce :step/publish :step/announce]
            (mapv :step/kind steps)))
     (is (= ["src" "resources"] (:step/src-dirs (nth steps 2))))
     (is (= :remote (:installer published)))

@@ -98,7 +98,7 @@
 ;; ── The build plans ───────────────────────────────────────────────────────
 
 (deftest the-source-jar-plan-is-exactly-this
-  (is (= [:step/clean :step/write-pom :step/copy-dir :step/jar
+  (is (= [:step/clean :step/write-pom :step/copy-dir :step/stamp-manifest :step/jar
           :step/normalize :step/announce]
          (kinds (plan/plan :task/jar (project :clojars) facts)))))
 
@@ -109,7 +109,7 @@
          (step-of (plan/plan :task/jar (project :clojars) facts) :step/copy-dir))))
 
 (deftest the-aot-jar-plan-is-exactly-this
-  (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir
+  (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir :step/stamp-manifest
           :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
          (kinds (plan/plan :task/jar-aot (project :gitea) facts)))))
 
@@ -214,8 +214,8 @@
 
 (deftest clojars-receives-the-source-jar
   (let [p (plan/plan :task/deploy (project :clojars) facts)]
-    (is (= [:step/clean :step/write-pom :step/copy-dir :step/jar :step/normalize
-            :step/announce :step/publish :step/announce]
+    (is (= [:step/clean :step/write-pom :step/copy-dir :step/stamp-manifest :step/jar
+            :step/normalize :step/announce :step/publish :step/announce]
            (kinds p)))
     (is (plan/publishes? p))))
 

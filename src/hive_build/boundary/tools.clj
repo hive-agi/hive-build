@@ -8,6 +8,7 @@
             [hive-build.boundary.archive :as archive]
             [hive-build.boundary.load-verify :as load-verify]
             [hive-build.collect.io :as io']
+            [hive-build.promote.manifest :as manifest]
             [hive-build.promote.naming :as naming]
             [hive-build.promote.pom :as pom]
             [hive-build.promote.project :as project]
@@ -195,6 +196,15 @@
    :step/copy-dir
    (fn [_ctx step]
      (b/copy-dir {:src-dirs (:step/src-dirs step) :target-dir (:step/target-dir step)}))
+
+   :step/stamp-manifest
+   (fn [_ctx step]
+     (let [version (:step/version step)]
+       (into []
+             (keep (fn [path]
+                     (when-let [stamped (manifest/stamp (io'/read-text path) version)]
+                       (io'/write-text! path stamped))))
+             (manifest/manifests (io'/files-under (:step/class-dir step))))))
 
    :step/write-pom
    (fn [ctx _step]

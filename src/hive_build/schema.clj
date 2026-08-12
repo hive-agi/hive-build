@@ -197,6 +197,12 @@
      [:step/target-id :keyword]
      [:step/installer [:enum :local :remote]]]]
 
+   [:step/stamp-manifest
+    [:map {:closed true}
+     [:step/kind [:= :step/stamp-manifest]]
+     [:step/class-dir [:string {:min 1}]]
+     [:step/version VersionString]]]
+
    [:step/announce
     [:map {:closed true}
      [:step/kind [:= :step/announce]]

@@ -40,6 +40,8 @@
     [{:step/kind :step/clean :step/path target-dir}
      {:step/kind :step/write-pom}
      {:step/kind :step/copy-dir :step/src-dirs src-dirs :step/target-dir class-dir}
+     {:step/kind :step/stamp-manifest :step/class-dir class-dir
+      :step/version (released project)}
      {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
      {:step/kind :step/normalize :step/path jar-file}
      (announce (str "Built " (label project) " " (released project) " -> " jar-file))]))
@@ -74,6 +76,10 @@
              {:step/kind :step/copy-dir
               :step/src-dirs (vec resource-roots)
               :step/target-dir class-dir})
+           (when (seq resource-roots)
+             {:step/kind :step/stamp-manifest
+              :step/class-dir class-dir
+              :step/version (released project)})
            {:step/kind :step/write-pom}
            {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
            {:step/kind :step/normalize :step/path jar-file}
