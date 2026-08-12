@@ -7,7 +7,8 @@
   (:require [clojure.string :as str]
             [malli.core :as m]
             [hive-build.promote.naming :as naming]
-            [hive-build.schema :as s]))
+            [hive-build.schema :as s]
+            [hive-build.promote.classes :as classes]))
 
 (def default-elide-meta
   "Metadata keys stripped from every AOT class file unless version.edn
@@ -74,7 +75,10 @@
        :project/elide-meta       (vec (:aot/elide-meta cfg default-elide-meta))
        :project/pom-exclude-deps (set (:pom-exclude-deps cfg []))
        :project/package-protocols (vec (:aot/package-protocols cfg []))
-       :project/aot-java-opts    (vec (:aot/java-opts cfg []))})))
+       :project/aot-java-opts    (vec (:aot/java-opts cfg []))
+       :project/allow-foreign-classes (into #{} (map classes/internal-name)
+                                            (:aot/allow-foreign-classes cfg []))
+       :project/strict-foreign-classes? (boolean (:aot/strict-foreign-classes cfg false))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])

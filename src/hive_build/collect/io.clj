@@ -17,6 +17,16 @@
   (let [f (io/file path)]
     (when (.isFile f) (slurp f))))
 
+(defn read-bytes
+  "Contents of `path` as a byte array, or nil when it is absent."
+  [path]
+  (let [f (io/file path)]
+    (when (.isFile f)
+      (with-open [in (io/input-stream f)
+                  out (java.io.ByteArrayOutputStream.)]
+        (io/copy in out)
+        (.toByteArray out)))))
+
 (defn read-edn
   "Parsed EDN at `path`, or nil when the file is absent.
 

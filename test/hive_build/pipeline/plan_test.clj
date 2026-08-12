@@ -109,8 +109,9 @@
          (step-of (plan/plan :task/jar (project :clojars) facts) :step/copy-dir))))
 
 (deftest the-aot-jar-plan-is-exactly-this
-  (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir :step/stamp-manifest
-          :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
+  (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
+          :step/copy-dir :step/stamp-manifest :step/write-pom :step/jar
+          :step/normalize :step/verify-load :step/announce]
          (kinds (plan/plan :task/jar-aot (project :gitea) facts)))))
 
 (deftest the-aot-jar-copies-only-resource-roots
@@ -122,9 +123,23 @@
 
 (deftest a-project-with-no-resources-has-no-copy-step
   (let [p (plan/plan :task/jar-aot (project :gitea) (assoc facts :facts/resource-roots []))]
-    (is (= [:step/clean :step/compile :step/copy-classes
+    (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
             :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
            (kinds p)))))
+
+(deftest the-aot-audit-defaults-to-reporting-not-failing
+  (testing "a project that declares nothing still plans a total step"
+    (let [step (step-of (plan/plan :task/jar-aot (project :gitea) facts) :step/verify-classes)]
+      (is (= #{} (:step/allowed step)))
+      (is (false? (:step/strict? step)))
+      (is (= ["hive_thing/core" "hive_thing/impl"] (:step/prefixes step)))))
+  (testing "declaring strictness turns the report into a failure"
+    (let [strict (assoc (project :gitea)
+                        :project/strict-foreign-classes? true
+                        :project/allow-foreign-classes #{"hive_spi/memory/ports/IMemoryStore"})
+          step   (step-of (plan/plan :task/jar-aot strict facts) :step/verify-classes)]
+      (is (true? (:step/strict? step)))
+      (is (= #{"hive_spi/memory/ports/IMemoryStore"} (:step/allowed step))))))
 
 ;; ── The leak guard ────────────────────────────────────────────────────────
 

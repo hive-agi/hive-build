@@ -12,7 +12,8 @@
             [hive-build.promote.naming :as naming]
             [hive-build.promote.pom :as pom]
             [hive-build.promote.project :as project]
-            [hive-build.promote.publish :as publish]))
+            [hive-build.promote.publish :as publish]
+            [hive-build.promote.classes :as classes]))
 
 ;; ── Context ────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,31 @@
   [request]
   ((requiring-resolve 'deps-deploy.deps-deploy/deploy) request))
 
+(defn- shipped-classes
+  "Internal names of the .class files already under `class-dir`."
+  [class-dir]
+  (let [root (str class-dir "/")]
+    (into #{}
+          (comp (filter #(str/ends-with? % ".class"))
+                (map #(subs % (count root)))
+                (map #(subs % 0 (- (count %) 6))))
+          (io'/files-under class-dir))))
+
+(defn- audit-classes!
+  "Foreign classes the copied .class files link against but the jar does not
+   ship. Throws under :strict?, otherwise reports and returns them."
+  [{:keys [class-dir prefixes allowed strict?]}]
+  (let [files     (filterv #(str/ends-with? % ".class") (io'/files-under class-dir))
+        names     (into #{} (mapcat #(classes/class-names (io'/read-bytes %))) files)
+        offenders (classes/foreign-refs names {:prefixes prefixes
+                                               :shipped (shipped-classes class-dir)
+                                               :allowed allowed})]
+    (when-let [message (classes/report offenders)]
+      (if strict?
+        (throw (ex-info message {:offenders offenders :class-dir class-dir}))
+        (println "WARNING:" message)))
+    offenders))
+
 (def handlers
   "Step kind -> (fn [ctx step] -> result). The tools.build implementation of
    every step a plan can contain."
@@ -192,6 +218,13 @@
                                 (:step/to step)
                                 (:step/prefixes step)
                                 (:step/files step)))
+
+   :step/verify-classes
+   (fn [_ctx step]
+     (audit-classes! {:class-dir (:step/class-dir step)
+                      :prefixes  (:step/prefixes step)
+                      :allowed   (:step/allowed step)
+                      :strict?   (:step/strict? step)}))
 
    :step/copy-dir
    (fn [_ctx step]

@@ -107,7 +107,9 @@
    [:project/elide-meta [:vector :keyword]]
    [:project/pom-exclude-deps [:set :symbol]]
    [:project/package-protocols [:vector LibSymbol]]
-   [:project/aot-java-opts [:vector :string]]])
+   [:project/aot-java-opts [:vector :string]]
+   [:project/allow-foreign-classes [:set [:string {:min 1}]]]
+   [:project/strict-foreign-classes? :boolean]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -162,6 +164,14 @@
      [:step/to [:string {:min 1}]]
      [:step/prefixes [:vector [:string {:min 1}]]]
      [:step/files [:vector [:string {:min 1}]]]]]
+
+   [:step/verify-classes
+    [:map {:closed true}
+     [:step/kind [:= :step/verify-classes]]
+     [:step/class-dir [:string {:min 1}]]
+     [:step/prefixes [:vector [:string {:min 1}]]]
+     [:step/allowed [:set [:string {:min 1}]]]
+     [:step/strict? :boolean]]]
 
    [:step/copy-dir
     [:map {:closed true}

@@ -86,14 +86,17 @@
 (deftest a-private-release-ships-classes-and-no-source
   (let [{:keys [steps published]} (trace :task/deploy cfg facts)]
     (testing "the effects, in order"
-      (is (= [:step/clean :step/compile :step/copy-classes :step/copy-dir
-              :step/stamp-manifest :step/write-pom :step/jar :step/normalize
-              :step/verify-load :step/announce :step/publish :step/announce]
+      (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
+              :step/copy-dir :step/stamp-manifest :step/write-pom :step/jar
+              :step/normalize :step/verify-load :step/announce :step/publish
+              :step/announce]
              (mapv :step/kind steps))))
     (testing "only resources are copied — no source directory is packaged"
-      (is (= ["resources"] (:step/src-dirs (nth steps 3)))))
+      (is (= ["resources"] (:step/src-dirs (nth steps 4)))))
     (testing "the addon manifest is stamped with the version being released"
-      (is (= "1.2.3" (:step/version (nth steps 4)))))
+      (is (= "1.2.3" (:step/version (nth steps 5)))))
+    (testing "the copied classes are audited against what they link to"
+      (is (= ["hive_thing/core" "hive_thing/impl"] (:step/prefixes (nth steps 3)))))
     (testing "the host namespace compiles but is not packaged"
       (is (= ['host.protocol 'hive-thing.core 'hive-thing.impl]
              (:step/ns-compile (nth steps 1))))

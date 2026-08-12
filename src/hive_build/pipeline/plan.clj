@@ -49,7 +49,8 @@
 (defmethod steps :task/jar-aot
   [_ project facts]
   (let [{:project/keys [target-dir class-dir scratch-dir jar-file
-                        elide-meta package-protocols aot-java-opts]} project
+                        elide-meta package-protocols aot-java-opts
+                        allow-foreign-classes strict-foreign-classes?]} project
         {:facts/keys [source-roots resource-roots namespaces preload]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
     (into []
@@ -72,6 +73,14 @@
             :step/to class-dir
             :step/prefixes (mapv naming/ns->path namespaces)
             :step/files (mapv naming/protocol->class-path package-protocols)}
+           ;; What was copied is audited against what it links to: a hardcoded
+           ;; foreign class the jar does not ship mounts nowhere, and says so
+           ;; only when someone tries.
+           {:step/kind :step/verify-classes
+            :step/class-dir class-dir
+            :step/prefixes (mapv naming/ns->path namespaces)
+            :step/allowed (or allow-foreign-classes #{})
+            :step/strict? (boolean strict-foreign-classes?)}
            (when (seq resource-roots)
              {:step/kind :step/copy-dir
               :step/src-dirs (vec resource-roots)
