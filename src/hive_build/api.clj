@@ -39,17 +39,21 @@
      kondo           sync dependency-exported lint configs, then lint
      bump            rewrite ./VERSION (:level :patch|:minor|:major)
      verify-license  report LICENSE / version.edn / SPDX agreement (warns)
+     freeze-check    refuse a release that breaks ./freeze-policy.edn (fails)
      deploy          build + publish per :publish (no-op when :none)
 
    Release flow (what CI runs on a push to main that touches src/deps):
      clojure -T:build bump :level :patch
      clojure -T:build deploy"
   (:require [clojure.string :as str]
+            [hive-build.boundary.freeze :as gitf]
             [hive-build.boundary.run :as run]
             [hive-build.boundary.tools :as tools]
             [hive-build.collect.io :as io']
             [hive-build.pipeline.plan :as plan]
             [hive-build.promote.license :as license]
+            [hive-build.promote.api-surface :as surface]
+            [hive-build.promote.freeze :as freeze]
             [hive-build.promote.lint :as lint]
             [hive-build.promote.naming :as naming]
             [hive-build.promote.version :as version]))
@@ -117,6 +121,50 @@
           (doseq [p (:report/problems report)] (println "  -" p))
           (println "  A published pom can never be retracted.")))
     report))
+
+(defn freeze-check
+  "Refuse a release that breaks the repository's freeze policy.
+
+   Reads ./freeze-policy.edn (absent = nothing enforced), compares the public
+   API surface on disk against the surface at the last v* tag, and checks the
+   age of that tag. Prints the verdict; THROWS on a violation so the release
+   workflow stops before `bump` mints a version that can never be retracted.
+
+   Escape hatches are per-commit and must be written down: the cadence marker
+   and the break marker named by the policy, in the HEAD commit message.
+
+   Returns the verdict map on success."
+  [_]
+  (let [project  (tools/read-project)
+        src-dirs (or (:project/src-dirs project) ["src"])
+        policy   (or (io'/read-edn "freeze-policy.edn") freeze/default-policy)
+        tag      (gitf/last-release-tag)
+        old      (when tag
+                   (->> (gitf/files-at tag src-dirs)
+                        (keep #(gitf/text-at tag %))
+                        (map gitf/read-forms)
+                        (map surface/surface)
+                        surface/merge-surfaces))
+        new      (->> (gitf/source-files src-dirs)
+                      (keep gitf/read-text)
+                      (map gitf/read-forms)
+                      (map surface/surface)
+                      surface/merge-surfaces)
+        d        (surface/diff (or old {}) new)
+        verdict  (freeze/evaluate
+                  policy
+                  {:diff d
+                   :breaking? (and (some? tag) (surface/breaking? d))
+                   :descriptions (surface/describe d)
+                   :days-since-last (gitf/tag-age-days tag)
+                   :commit-message (gitf/head-commit-message)})]
+    (println (str "freeze-check: " (count new) " public names, baseline "
+                  (or tag "none (first release)")
+                  (when tag (str ", +" (count (:added d)) " added"))))
+    (doseq [line (freeze/report-lines verdict)] (println line))
+    (when-not (:ok? verdict)
+      (throw (ex-info "freeze-check refused this release" verdict)))
+    verdict))
 
 ;; ── Lint ───────────────────────────────────────────────────────────────────
 
