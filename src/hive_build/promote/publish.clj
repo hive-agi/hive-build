@@ -23,7 +23,10 @@
    :target/publishes? true
    :target/repo-url nil
    :target/repo-url-env "MAVEN_URL"
-   :target/repository-name "gitea"
+   ;; The id this repository is known by in a project's :mvn/repos AND in
+   ;; ~/.m2/settings.xml. deps-deploy resolves an id against both, so the three
+   ;; must agree or a credential-free deploy cannot find its URL.
+   :target/repository-name "hive-gitea"
    :target/username-env "MAVEN_USERNAME"
    :target/password-env "MAVEN_TOKEN"})
 

@@ -120,7 +120,7 @@
       (is (= {:installer :remote
               :artifact "target/hive-thing-1.2.3.jar"
               :pom-file "target/classes/META-INF/maven/pom.xml"
-              :repository {"gitea" {:url "https://gitea.test/maven"
+              :repository {"hive-gitea" {:url "https://gitea.test/maven"
                                     :username "bot"
                                     :password "tok"}}}
              published)))))

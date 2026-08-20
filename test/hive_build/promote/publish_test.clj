@@ -80,7 +80,7 @@
   (is (= {:installer :remote
           :artifact "target/x-1.0.0.jar"
           :pom-file "target/classes/META-INF/maven/g/a/pom.xml"
-          :repository {"gitea" {:url "https://gitea.test/maven"
+          :repository {"hive-gitea" {:url "https://gitea.test/maven"
                                 :username "bot"
                                 :password "tok"}}}
          (publish/deploy-request (publish/target :gitea)
@@ -119,14 +119,14 @@
                                           {:artifact "a.jar"
                                            :pom-file "pom.xml"
                                            :env {}})]
-      (is (= "gitea" (:repository request))
+      (is (= "hive-gitea" (:repository request))
           "the id alone, not a map with nil credentials")))
   (testing "half a credential is no credential"
     (doseq [env [{"MAVEN_USERNAME" "bot"}
                  {"MAVEN_TOKEN" "tok"}
                  {"MAVEN_USERNAME" "" "MAVEN_TOKEN" "tok"}
                  {"MAVEN_USERNAME" "bot" "MAVEN_TOKEN" ""}]]
-      (is (= "gitea" (:repository (publish/deploy-request
+      (is (= "hive-gitea" (:repository (publish/deploy-request
                                    (publish/target :gitea)
                                    {:artifact "a.jar" :pom-file "pom.xml"
                                     :env env})))
