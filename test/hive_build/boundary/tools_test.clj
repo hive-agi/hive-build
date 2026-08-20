@@ -129,7 +129,8 @@
         project (project/project {:lib 'g/a :publish :gitea :src-dirs ["src"]} "1.2.3")]
     (with-redefs [io'/getenv env
                   io'/read-text (fn [p] (when (= "deps.edn" p) deps-edn))
-                  maven-settings/deps-repo-by-id (fn [id] {id (get servers id)})]
+                  maven-settings/deps-repo-by-id (fn [id] {id (get servers id)})
+                  maven-settings/read-settings (fn [] (throw (java.io.FileNotFoundException. "no settings.xml")))]
       ((get tools/handlers :step/publish)
        (assoc (tools/context project) :ctx/deploy-fn #(reset! captured %))
        {:step/kind :step/publish :step/target-id :gitea :step/installer :remote}))
@@ -167,3 +168,28 @@
       (is (= {"hive-gitea" {:url "https://ci.test/maven"
                             :username "ci" :password "t"}}
              (:repository request))))))
+
+(deftest a-machine-with-no-settings-security-file-still-deploys
+  (testing "settings-security.xml exists only where a master password was set;
+            a plaintext credential is readable without it, and demanding one
+            is what turned a working settings.xml into a FileNotFoundException"
+    (let [captured (atom nil)
+          project (project/project {:lib 'g/a :publish :gitea :src-dirs ["src"]} "1.2.3")
+          server (doto (org.apache.maven.settings.Server.)
+                   (.setId "hive-gitea")
+                   (.setUsername "bot")
+                   (.setPassword "tok"))
+          settings (doto (org.apache.maven.settings.Settings.)
+                     (.addServer server))]
+      (with-redefs [io'/getenv {}
+                    io'/read-text (fn [_] "{:mvn/repos {\"hive-gitea\" {:url \"https://g.test/maven\"}}}")
+                    maven-settings/deps-repo-by-id
+                    (fn [_] (throw (java.io.FileNotFoundException. "settings-security.xml")))
+                    maven-settings/read-settings (fn [] settings)]
+        ((get tools/handlers :step/publish)
+         (assoc (tools/context project) :ctx/deploy-fn #(reset! captured %))
+         {:step/kind :step/publish :step/target-id :gitea :step/installer :remote}))
+      (is (= {"hive-gitea" {:url "https://g.test/maven"
+                            :username "bot"
+                            :password "tok"}}
+             (:repository @captured))))))

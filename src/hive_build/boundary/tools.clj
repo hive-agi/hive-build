@@ -171,6 +171,24 @@
   [request]
   ((requiring-resolve 'deps-deploy.deps-deploy/deploy) request))
 
+(defn- settings-credentials
+  "The username and password ~/.m2/settings.xml holds for server `repo-id`,
+   or nil.
+
+   deps-deploy's reader also opens ~/.m2/settings-security.xml, which exists
+   only where a master password was configured; a plaintext password is
+   readable without it, so the settings file alone is the fallback rather than
+   a hard failure."
+  [repo-id]
+  (or (try (get (maven-settings/deps-repo-by-id repo-id) repo-id)
+           (catch Exception _ nil))
+      (try (some->> (.getServers (maven-settings/read-settings))
+                    (filter #(= repo-id (.getId %)))
+                    first
+                    (#(array-map :username (.getUsername %)
+                                 :password (.getPassword %))))
+           (catch Exception _ nil))))
+
 (defn- resolve-repository
   "`request` with a repository named only by its ID replaced by the settings
    that ID stands for: the URL from ./deps.edn's :mvn/repos and the username
@@ -186,7 +204,7 @@
       request
       (let [url (get-in (edn/read-string (or (io'/read-text "deps.edn") "{}"))
                         [:mvn/repos repo-name :url])
-            creds (get (maven-settings/deps-repo-by-id repo-name) repo-name)]
+            creds (settings-credentials repo-name)]
         (when-not url
           (throw (ex-info (str "deps.edn declares no :mvn/repos entry for " repo-name)
                           {:repository repo-name})))
