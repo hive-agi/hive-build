@@ -111,6 +111,37 @@
 (deftest basic-auth-encodes-the-standard-header
   (is (= "Basic dXNlcjpwYXNz" (publish/basic-auth "user" "pass"))))
 
+(deftest a-named-repository-without-env-credentials-is-passed-as-its-id
+  (testing "deps-deploy resolves an id against :mvn/repos for the URL and
+            ~/.m2/settings.xml for the credentials, which is where an
+            operator's token already lives"
+    (let [request (publish/deploy-request (publish/target :gitea)
+                                          {:artifact "a.jar"
+                                           :pom-file "pom.xml"
+                                           :env {}})]
+      (is (= "gitea" (:repository request))
+          "the id alone, not a map with nil credentials")))
+  (testing "half a credential is no credential"
+    (doseq [env [{"MAVEN_USERNAME" "bot"}
+                 {"MAVEN_TOKEN" "tok"}
+                 {"MAVEN_USERNAME" "" "MAVEN_TOKEN" "tok"}
+                 {"MAVEN_USERNAME" "bot" "MAVEN_TOKEN" ""}]]
+      (is (= "gitea" (:repository (publish/deploy-request
+                                   (publish/target :gitea)
+                                   {:artifact "a.jar" :pom-file "pom.xml"
+                                    :env env})))
+          (str env " must not produce a map carrying an empty password")))))
+
+(deftest env-credentials-still-win-over-the-settings-file
+  (testing "CI supplies them, and a repository map must not be downgraded to
+            an id that a build agent has no settings.xml for"
+    (is (map? (:repository (publish/deploy-request
+                            (publish/target :gitea)
+                            {:artifact "a.jar" :pom-file "pom.xml"
+                             :env {"MAVEN_URL" "https://gitea.test/maven"
+                                   "MAVEN_USERNAME" "bot"
+                                   "MAVEN_TOKEN" "tok"}}))))))
+
 (deftest basic-auth-refuses-a-half-credential
   (testing "an incomplete credential must not become an anonymous request that
             answers 404 and reads as `not yet published`"

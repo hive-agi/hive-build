@@ -104,19 +104,30 @@
 (defn deploy-request
   "The deps-deploy argument map for `target`.
 
-   A named repository carries explicit credentials; without one deps-deploy
-   applies its own Clojars defaults. A local install never carries a
-   repository at all."
+   A named repository is passed as a MAP when `env` carries its credentials —
+   that is how CI supplies them — and as the repository ID alone when it does
+   not. deps-deploy resolves an id against the project's `:mvn/repos` for the
+   URL and against ~/.m2/settings.xml for the username and password, which is
+   where an operator's credentials already live and the only path that keeps a
+   token out of the process environment. Without a named repository
+   deps-deploy applies its own Clojars defaults, and a local install never
+   carries a repository at all."
   [target {:keys [artifact pom-file env installer] :or {installer :remote}}]
-  (let [repo-name (:target/repository-name target)]
+  (let [repo-name (:target/repository-name target)
+        username (get env (:target/username-env target))
+        password (get env (:target/password-env target))
+        named? (and repo-name (= :remote installer))]
     (cond-> {:installer installer
              :artifact artifact
              :pom-file pom-file}
-      (and repo-name (= :remote installer))
+      (and named? (seq username) (seq password))
       (assoc :repository
              {repo-name {:url (repo-url target env)
-                         :username (get env (:target/username-env target))
-                         :password (get env (:target/password-env target))}}))))
+                         :username username
+                         :password password}})
+
+      (and named? (not (and (seq username) (seq password))))
+      (assoc :repository repo-name))))
 
 (m/=> register! [:=> [:cat s/Target] :keyword])
 (m/=> target [:=> [:cat :keyword] s/Target])
