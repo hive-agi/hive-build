@@ -42,6 +42,19 @@ A library is publishable only if every **runtime** `:deps` entry is
 form a complete Maven pom — keep those in `:test` / `:dev` aliases, which are
 excluded from the pom.
 
+## Self-hosting lag
+
+hive-build packages itself with the **published** hive-build named by its own
+`:build` alias, so a change to how artifacts are packaged reaches hive-build's
+own jar one release later than it reaches everyone else's. A release that
+introduces such a change therefore ships the new behaviour in its source and
+not in its own artifact; the release after it, with the `:build` alias bumped,
+is the first one built by it. Verify with:
+
+```bash
+unzip -p target/hive-build-<version>.jar '*/pom.xml' | grep -c '<repositories'
+```
+
 ## Scaffolding a new repo
 
 Use **[`bb-build`](../bb-build)** — a lein-new-style generator that writes a
