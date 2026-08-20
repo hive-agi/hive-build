@@ -292,7 +292,14 @@
      (let [{:ctx/keys [project deploy-fn]} ctx
            target (publish/target (:step/target-id step))
            remote? (= :remote (:step/installer step))
-           env (if remote? (io'/env (publish/required-env target)) {})]
+           ;; A named repository can take its credentials from ~/.m2/settings.xml,
+           ;; so an unset variable there is a choice; everywhere else it is the
+           ;; mistake `env` exists to catch before the artifact is built.
+           env (cond
+                 (not remote?) {}
+                 (:target/repository-name target)
+                 (io'/env-some (publish/required-env target))
+                 :else (io'/env (publish/required-env target)))]
        ((or deploy-fn default-deploy!)
         (publish/deploy-request target
                                 {:artifact (:project/jar-file project)

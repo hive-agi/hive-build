@@ -82,6 +82,15 @@
       (doseq [k ["BLANK" "EMPTY" "ABSENT"]]
         (is (thrown? clojure.lang.ExceptionInfo (io'/env [k])) k)))))
 
+(deftest env-some-skips-what-is-not-set-instead-of-throwing
+  (testing "a named Maven repository reads its credentials from settings.xml,
+            so an unset variable there is a choice and not a mistake"
+    (with-redefs [io'/getenv {"SET" "v" "BLANK" "  "}]
+      (is (= {"SET" "v"} (io'/env-some ["SET" "BLANK" "MISSING"])))
+      (is (= {} (io'/env-some ["MISSING"])))
+      (is (thrown? clojure.lang.ExceptionInfo (io'/env ["SET" "MISSING"]))
+          "and `env` must keep throwing, or the guard is gone everywhere"))))
+
 (deftest head-ok-is-false-when-the-registry-is-unreachable
   (testing "an unreachable registry must not read as `already published`,
             which would silently skip a release"

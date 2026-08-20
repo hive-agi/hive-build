@@ -101,6 +101,20 @@
           {}
           ks))
 
+(defn env-some
+  "{k -> value} for the `ks` that are set and non-blank, and nothing else.
+
+   For a destination that has a second source of credentials — a named Maven
+   repository, whose username and password deps-deploy reads from
+   ~/.m2/settings.xml — an unset variable is a choice, not a mistake, so it
+   must not throw the way `env` does."
+  [ks]
+  (reduce (fn [acc k]
+            (let [v (getenv k)]
+              (cond-> acc (not (str/blank? v)) (assoc k v))))
+          {}
+          ks))
+
 (defn head-ok?
   "True when a HEAD of `url` answers 200. Any failure is false: an unreachable
    registry must not be read as `already published`."
