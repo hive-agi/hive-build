@@ -14,7 +14,9 @@
             [hive-build.promote.project :as project]
             [hive-build.promote.publish :as publish]
             [hive-build.promote.classes :as classes]
-            [hive-build.promote.elide :as elide]))
+            [hive-build.promote.elide :as elide]
+            [clojure.edn :as edn]
+            [deps-deploy.maven-settings :as maven-settings]))
 
 ;; ── Context ────────────────────────────────────────────────────────────────
 
@@ -169,6 +171,34 @@
   [request]
   ((requiring-resolve 'deps-deploy.deps-deploy/deploy) request))
 
+(defn- resolve-repository
+  "`request` with a repository named only by its ID replaced by the settings
+   that ID stands for: the URL from ./deps.edn's :mvn/repos and the username
+   and password from ~/.m2/settings.xml.
+
+   deps-deploy documents the ID form and cannot execute it — its `deploy`
+   destructures the RAW options rather than the preprocessed ones, so a string
+   is indexed as a character sequence and dies one frame later. Resolving here
+   keeps that support and makes a missing half say which half."
+  [request]
+  (let [repo-name (:repository request)]
+    (if-not (string? repo-name)
+      request
+      (let [url (get-in (edn/read-string (or (io'/read-text "deps.edn") "{}"))
+                        [:mvn/repos repo-name :url])
+            creds (get (maven-settings/deps-repo-by-id repo-name) repo-name)]
+        (when-not url
+          (throw (ex-info (str "deps.edn declares no :mvn/repos entry for " repo-name)
+                          {:repository repo-name})))
+        (when-not (:username creds)
+          (throw (ex-info (str "~/.m2/settings.xml declares no server " repo-name
+                               " — set " repo-name " there or supply the credential"
+                               " environment variables")
+                          {:repository repo-name})))
+        (assoc request :repository {repo-name {:url url
+                                               :username (:username creds)
+                                               :password (:password creds)}})))))
+
 (defn- shipped-classes
   "Internal names of the .class files already under `class-dir`."
   [class-dir]
@@ -301,11 +331,12 @@
                  (io'/env-some (publish/required-env target))
                  :else (io'/env (publish/required-env target)))]
        ((or deploy-fn default-deploy!)
-        (publish/deploy-request target
-                                {:artifact (:project/jar-file project)
-                                 :pom-file (pom-file ctx)
-                                 :env env
-                                 :installer (:step/installer step)}))))
+        (resolve-repository
+         (publish/deploy-request target
+                                 {:artifact (:project/jar-file project)
+                                  :pom-file (pom-file ctx)
+                                  :env env
+                                  :installer (:step/installer step)})))))
 
    :step/announce
    (fn [_ctx step] (println (:step/message step)))})

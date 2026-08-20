@@ -12,7 +12,8 @@
             [clojure.tools.build.api :as b]
             [hive-build.boundary.tools :as tools]
             [hive-build.collect.io :as io']
-            [hive-build.promote.project :as project]))
+            [hive-build.promote.project :as project]
+            [deps-deploy.maven-settings :as maven-settings]))
 
 (def compile-clj-options
   "Keys clojure.tools.build.api/compile-clj documents. Anything else passed to
@@ -119,3 +120,50 @@
         (is (clojure.string/includes? pom "<version>1.2.3</version>"))
         (is (clojure.string/includes? pom "<tag>deadbeef</tag>"))
         (is (clojure.string/includes? pom "<name>MIT</name>"))))))
+
+(defn- published-request
+  "Drive :step/publish for a gitea target with `env`, capturing what deps-deploy
+   would have been handed."
+  [env deps-edn servers]
+  (let [captured (atom nil)
+        project (project/project {:lib 'g/a :publish :gitea :src-dirs ["src"]} "1.2.3")]
+    (with-redefs [io'/getenv env
+                  io'/read-text (fn [p] (when (= "deps.edn" p) deps-edn))
+                  maven-settings/deps-repo-by-id (fn [id] {id (get servers id)})]
+      ((get tools/handlers :step/publish)
+       (assoc (tools/context project) :ctx/deploy-fn #(reset! captured %))
+       {:step/kind :step/publish :step/target-id :gitea :step/installer :remote}))
+    @captured))
+
+(deftest a-credential-free-deploy-is-resolved-from-deps-edn-and-settings-xml
+  (testing "deps-deploy documents the repository-id form and cannot execute it,
+            so the id is resolved here into the map it stands for"
+    (let [request (published-request
+                   {}
+                   "{:mvn/repos {\"hive-gitea\" {:url \"https://g.test/maven\"}}}"
+                   {"hive-gitea" {:username "bot" :password "tok"}})]
+      (is (= {"hive-gitea" {:url "https://g.test/maven"
+                            :username "bot"
+                            :password "tok"}}
+             (:repository request))))))
+
+(deftest a-deploy-says-WHICH-half-of-the-repository-is-missing
+  (testing "no :mvn/repos entry"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #":mvn/repos"
+         (published-request {} "{}" {"hive-gitea" {:username "bot" :password "tok"}}))))
+  (testing "no settings.xml server"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"settings.xml"
+         (published-request {} "{:mvn/repos {\"hive-gitea\" {:url \"https://g.test/maven\"}}}" {})))))
+
+(deftest env-credentials-bypass-the-settings-file-entirely
+  (testing "CI has no settings.xml, and must not be made to read one"
+    (let [request (published-request
+                   {"MAVEN_URL" "https://ci.test/maven"
+                    "MAVEN_USERNAME" "ci" "MAVEN_TOKEN" "t"}
+                   nil
+                   {})]
+      (is (= {"hive-gitea" {:url "https://ci.test/maven"
+                            :username "ci" :password "t"}}
+             (:repository request))))))
