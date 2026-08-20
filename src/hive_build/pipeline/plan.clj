@@ -48,7 +48,7 @@
 
 (defmethod steps :task/jar-aot
   [_ project facts]
-  (let [{:project/keys [target-dir class-dir scratch-dir jar-file
+  (let [{:project/keys [target-dir class-dir scratch-dir staged-src-dir jar-file
                         elide-meta package-protocols aot-java-opts
                         allow-foreign-classes strict-foreign-classes?]} project
         {:facts/keys [source-roots resource-roots namespaces preload]} facts
@@ -56,10 +56,16 @@
     (into []
           (remove nil?)
           [{:step/kind :step/clean :step/path target-dir}
+           ;; The compiler's :elide-meta reaches def metadata only, so an ns
+           ;; docstring is stripped here, on a staged copy, or not at all.
+           {:step/kind :step/stage-sources
+            :step/src-dirs source-roots
+            :step/target-dir staged-src-dir
+            :step/elide-doc? (boolean (some #{:doc} elide-meta))}
            ;; Host namespaces compile FIRST in the same JVM so reify/require
            ;; against runtime-only host protocols resolves.
            {:step/kind :step/compile
-            :step/src-dirs source-roots
+            :step/src-dirs [staged-src-dir]
             :step/ns-compile (into [] (distinct)
                                    (concat protocol-namespaces preload namespaces))
             :step/class-dir scratch-dir

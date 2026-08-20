@@ -1,7 +1,9 @@
 (ns hive-build.promote.pom
   "The parts of a pom hive-build decides rather than delegates: the declared
-   licence, the dependency set, the source roots and the SCM tag. Pure."
-  (:require [malli.core :as m]
+   licence, the dependency set, the source roots, the SCM tag and the
+   repository set. Pure."
+  (:require [clojure.string :as str]
+            [malli.core :as m]
             [hive-build.schema :as s]))
 
 (def undeclared
@@ -28,6 +30,17 @@
   [deps exclude]
   (apply dissoc deps exclude))
 
+(def ^:private repositories-re
+  #"(?s)[ \t]*<repositories>.*?</repositories>[ \t]*\r?\n?|[ \t]*<repositories[ \t]*/>[ \t]*\r?\n?")
+
+(defn without-repositories
+  "`pom-xml` with every <repositories> element removed.
+
+   Contract: the result contains no \"<repositories\" substring, and equals the
+   input when it declared none."
+  [pom-xml]
+  (str/replace pom-xml repositories-re ""))
+
 (defn pom-src-dirs
   "`src-dirs` as the pom should list them: resources are packaged but are not
    source roots."
@@ -43,3 +56,4 @@
 (m/=> prune-deps [:=> [:cat [:map-of :symbol :any] [:set :symbol]] [:map-of :symbol :any]])
 (m/=> pom-src-dirs [:=> [:cat [:vector [:string {:min 1}]]] [:vector [:string {:min 1}]]])
 (m/=> scm [:=> [:cat [:maybe :string] [:maybe :string]] :map])
+(m/=> without-repositories [:=> [:cat :string] :string])

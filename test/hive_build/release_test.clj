@@ -83,24 +83,39 @@
     (run/run! handlers {:ctx/project p} (plan/plan task p facts'))
     {:steps @log :published @published :project p}))
 
+(defn- step-of
+  "The first step of `kind` in `steps`. Positional indexing into a plan breaks
+   the moment a step is inserted; the assertions want the step, not its slot."
+  [steps kind]
+  (first (filter #(= kind (:step/kind %)) steps)))
+
 (deftest a-private-release-ships-classes-and-no-source
   (let [{:keys [steps published]} (trace :task/deploy cfg facts)]
     (testing "the effects, in order"
-      (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
-              :step/copy-dir :step/stamp-manifest :step/write-pom :step/jar
-              :step/normalize :step/verify-load :step/announce :step/publish
-              :step/announce]
+      (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes
+              :step/verify-classes :step/copy-dir :step/stamp-manifest
+              :step/write-pom :step/jar :step/normalize :step/verify-load
+              :step/announce :step/publish :step/announce]
              (mapv :step/kind steps))))
     (testing "only resources are copied — no source directory is packaged"
-      (is (= ["resources"] (:step/src-dirs (nth steps 4)))))
+      (is (= ["resources"] (:step/src-dirs (step-of steps :step/copy-dir)))))
     (testing "the addon manifest is stamped with the version being released"
-      (is (= "1.2.3" (:step/version (nth steps 5)))))
+      (is (= "1.2.3" (:step/version (step-of steps :step/stamp-manifest)))))
     (testing "the copied classes are audited against what they link to"
-      (is (= ["hive_thing/core" "hive_thing/impl"] (:step/prefixes (nth steps 3)))))
+      (is (= ["hive_thing/core" "hive_thing/impl"]
+             (:step/prefixes (step-of steps :step/verify-classes)))))
     (testing "the host namespace compiles but is not packaged"
       (is (= ['host.protocol 'hive-thing.core 'hive-thing.impl]
-             (:step/ns-compile (nth steps 1))))
-      (is (= ["hive_thing/core" "hive_thing/impl"] (:step/prefixes (nth steps 2)))))
+             (:step/ns-compile (step-of steps :step/compile))))
+      (is (= ["hive_thing/core" "hive_thing/impl"]
+             (:step/prefixes (step-of steps :step/copy-classes)))))
+    (testing "the sources are staged, and AOT compiles from the staged copy"
+      (let [stage (step-of steps :step/stage-sources)]
+        (is (= ["src"] (:step/src-dirs stage)))
+        (is (= "target/aot-src" (:step/target-dir stage)))
+        (testing "the ns docstring goes because :doc is being elided"
+          (is (true? (:step/elide-doc? stage))))
+        (is (= ["target/aot-src"] (:step/src-dirs (step-of steps :step/compile))))))
     (testing "and the artifact reaches the private registry with its own credentials"
       (is (= {:installer :remote
               :artifact "target/hive-thing-1.2.3.jar"
@@ -115,7 +130,7 @@
     (is (= [:step/clean :step/write-pom :step/copy-dir :step/stamp-manifest :step/jar
             :step/normalize :step/announce :step/publish :step/announce]
            (mapv :step/kind steps)))
-    (is (= ["src" "resources"] (:step/src-dirs (nth steps 2))))
+    (is (= ["src" "resources"] (:step/src-dirs (step-of steps :step/copy-dir))))
     (is (= :remote (:installer published)))
     (is (not (contains? published :repository)))))
 
@@ -148,3 +163,8 @@
       (is (= "target/hive-thing-1.2.3.jar" (jar-of "1.2.3")))
       (is (= "target/hive-thing-1.2.4.jar" (jar-of "1.2.4")))
       (is (= (jar-of "1.2.3") (:artifact (:published (trace :task/deploy cfg facts))))))))
+
+(deftest a-project-that-keeps-its-metadata-keeps-its-ns-docstrings
+  (testing ":aot/elide-meta [] disables elision, and the staging pass follows it"
+    (let [{:keys [steps]} (trace :task/jar-aot (assoc cfg :aot/elide-meta []) facts)]
+      (is (false? (:step/elide-doc? (step-of steps :step/stage-sources)))))))

@@ -11,7 +11,8 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.tools.build.api :as b]
             [hive-build.boundary.tools :as tools]
-            [hive-build.collect.io :as io']))
+            [hive-build.collect.io :as io']
+            [hive-build.promote.project :as project]))
 
 (def compile-clj-options
   "Keys clojure.tools.build.api/compile-clj documents. Anything else passed to
@@ -24,7 +25,7 @@
   [step]
   (let [captured (atom nil)]
     (with-redefs [b/compile-clj (fn [opts] (reset! captured opts) nil)
-                  tools/aot-basis (fn [_] ::basis)]
+                  tools/aot-basis (fn [_ _] ::basis)]
       ((get tools/handlers :step/compile) {:ctx/overlay nil} step))
     @captured))
 
@@ -78,3 +79,43 @@
                   b/git-count-revs (constantly "417")]
       (is (= "0.7.417" (tools/resolve-version {:minor 7})))
       (is (= "0.0.417" (tools/resolve-version {}))))))
+
+;; ── The pom that gets published ───────────────────────────────────────────
+
+(def ^:private leaky-basis
+  "A basis shaped like the fleet's: the user-level deps.edn contributes a
+   private registry, which tools.build writes into every pom it generates."
+  {:libs {}
+   :mvn/repos {"hive-gitea" {:url "https://gitea.example.com/api/packages/hive-agi/maven"}}})
+
+(defn- written-pom
+  "The pom text the :step/write-pom handler leaves on disk for `project`."
+  [project]
+  (let [dir (str (java.nio.file.Files/createTempDirectory
+                  "hive-build-pom" (into-array java.nio.file.attribute.FileAttribute [])))
+        project (assoc project :project/class-dir dir)]
+    (with-redefs [tools/pom-basis (fn [_] leaky-basis)
+                  b/git-process (fn [_] "deadbeef")]
+      ((get tools/handlers :step/write-pom) (tools/context project) nil))
+    (slurp (b/pom-path {:lib 'io.github.hive-agi/hive-thing :class-dir dir}))))
+
+(def ^:private thing-project
+  (project/project {:lib 'io.github.hive-agi/hive-thing
+                    :license {:name "MIT" :url "https://opensource.org/licenses/MIT"}
+                    :scm-url "https://github.com/hive-agi/hive-thing"
+                    :src-dirs ["src" "resources"]
+                    :publish :gitea}
+                   "1.2.3"))
+
+(deftest the-published-pom-names-no-repository
+  (testing "a <repositories> block discloses the private registry to every
+            customer, and lets a resolver holding upstream credentials fetch
+            the pristine jar around the store that mints and attributes it"
+    (let [pom (written-pom thing-project)]
+      (is (not (clojure.string/includes? pom "<repositories")))
+      (is (not (clojure.string/includes? pom "gitea.example.com")))
+      (testing "and the pom is otherwise intact"
+        (is (clojure.string/includes? pom "<artifactId>hive-thing</artifactId>"))
+        (is (clojure.string/includes? pom "<version>1.2.3</version>"))
+        (is (clojure.string/includes? pom "<tag>deadbeef</tag>"))
+        (is (clojure.string/includes? pom "<name>MIT</name>"))))))

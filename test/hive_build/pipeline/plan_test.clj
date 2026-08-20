@@ -1,6 +1,6 @@
 (ns hive-build.pipeline.plan-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [clojure.test.check.clojure-test :as tc]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
@@ -23,6 +23,7 @@
           :project/target-dir "target"
           :project/class-dir "target/classes"
           :project/scratch-dir "target/aot-classes"
+          :project/staged-src-dir "target/aot-src"
           :project/jar-file "target/hive-thing-1.2.3.jar"
           :project/target-id target-id
           :project/license {:license/name "MIT" :license/url ""}
@@ -109,9 +110,10 @@
          (step-of (plan/plan :task/jar (project :clojars) facts) :step/copy-dir))))
 
 (deftest the-aot-jar-plan-is-exactly-this
-  (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
-          :step/copy-dir :step/stamp-manifest :step/write-pom :step/jar
-          :step/normalize :step/verify-load :step/announce]
+  (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes
+          :step/verify-classes :step/copy-dir :step/stamp-manifest
+          :step/write-pom :step/jar :step/normalize :step/verify-load
+          :step/announce]
          (kinds (plan/plan :task/jar-aot (project :gitea) facts)))))
 
 (deftest the-aot-jar-copies-only-resource-roots
@@ -123,8 +125,9 @@
 
 (deftest a-project-with-no-resources-has-no-copy-step
   (let [p (plan/plan :task/jar-aot (project :gitea) (assoc facts :facts/resource-roots []))]
-    (is (= [:step/clean :step/compile :step/copy-classes :step/verify-classes
-            :step/write-pom :step/jar :step/normalize :step/verify-load :step/announce]
+    (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes
+            :step/verify-classes :step/write-pom :step/jar :step/normalize
+            :step/verify-load :step/announce]
            (kinds p)))))
 
 (deftest the-aot-audit-defaults-to-reporting-not-failing
@@ -236,8 +239,8 @@
 
 (deftest the-private-registry-receives-the-aot-jar
   (let [p (plan/plan :task/deploy (project :gitea) facts)]
-    (is (= :step/compile (second (kinds p))))
-    (is (= :step/copy-classes (nth (kinds p) 2)))
+    (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes]
+           (take 4 (kinds p))))
     (is (plan/publishes? p))
     (is (= {:step/kind :step/publish :step/target-id :gitea :step/installer :remote}
            (step-of p :step/publish)))))
@@ -335,3 +338,27 @@
       (and (= should-publish? (plan/publishes? p))
            (= should-publish? (plan/builds-jar? p))
            (nil? (m/explain s/Plan p))))))
+
+;; ── The ns docstring the compiler cannot elide ────────────────────────────
+
+(deftest aot-compiles-from-the-staged-sources-not-the-repository
+  (testing "the staging pass is what strips ns docstrings, so compiling from
+            the original sources would put them straight back into the jar"
+    (let [p (plan/plan :task/jar-aot (project :gitea) facts)
+          stage (step-of p :step/stage-sources)]
+      (is (= ["src"] (:step/src-dirs stage)))
+      (is (= "target/aot-src" (:step/target-dir stage)))
+      (is (= [(:step/target-dir stage)] (:step/src-dirs (step-of p :step/compile))))
+      (is (< (index-of p :step/stage-sources) (index-of p :step/compile))))))
+
+(deftest ns-docstrings-are-elided-exactly-when-def-docstrings-are
+  (are [elide-meta expected] (= expected
+                                (:step/elide-doc?
+                                 (step-of (plan/plan :task/jar-aot
+                                                     (project :gitea :project/elide-meta elide-meta)
+                                                     facts)
+                                          :step/stage-sources)))
+    [:doc :file :line] true
+    [:doc]             true
+    [:file :line]      false
+    []                 false))

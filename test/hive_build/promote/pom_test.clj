@@ -97,3 +97,40 @@
 (deftest scm-names-the-commit-the-artifact-was-cut-from
   (is (= {:url "https://github.com/hive-agi/hive-build" :tag "deadbeef"}
          (pom/scm "https://github.com/hive-agi/hive-build" "deadbeef"))))
+
+;; ── The published pom names no repository ─────────────────────────────────
+
+(def ^:private pom-with-repositories
+  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+       "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
+       "  <groupId>io.github.hive-agi</groupId>\n"
+       "  <artifactId>hive-thing</artifactId>\n"
+       "  <repositories>\n"
+       "    <repository>\n"
+       "      <id>hive-gitea</id>\n"
+       "      <url>https://gitea.example.com/api/packages/hive-agi/maven</url>\n"
+       "    </repository>\n"
+       "  </repositories>\n"
+       "  <scm>\n"
+       "    <tag>deadbeef</tag>\n"
+       "  </scm>\n"
+       "</project>\n"))
+
+(deftest a-published-pom-declares-no-repository
+  (testing "a <repositories> block discloses the private registry and lets a
+            credentialed resolver fetch around the store that mints the jar"
+    (let [scrubbed (pom/without-repositories pom-with-repositories)]
+      (is (not (clojure.string/includes? scrubbed "<repositories")))
+      (is (not (clojure.string/includes? scrubbed "gitea.example.com")))
+      (testing "and everything else survives"
+        (is (clojure.string/includes? scrubbed "<artifactId>hive-thing</artifactId>"))
+        (is (clojure.string/includes? scrubbed "<tag>deadbeef</tag>"))))))
+
+(deftest scrubbing-a-pom-that-names-no-repository-changes-nothing
+  (let [pom "<project><artifactId>a</artifactId></project>"]
+    (is (= pom (pom/without-repositories pom)))))
+
+(deftest an-empty-repositories-element-is-removed-too
+  (is (not (clojure.string/includes?
+            (pom/without-repositories "<project>\n  <repositories/>\n</project>")
+            "<repositories"))))

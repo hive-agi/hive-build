@@ -100,6 +100,7 @@
    [:project/target-dir [:string {:min 1}]]
    [:project/class-dir [:string {:min 1}]]
    [:project/scratch-dir [:string {:min 1}]]
+   [:project/staged-src-dir [:string {:min 1}]]
    [:project/jar-file [:string {:min 1}]]
    [:project/target-id :keyword]
    [:project/license [:maybe License]]
@@ -147,6 +148,13 @@
     [:map {:closed true}
      [:step/kind [:= :step/clean]]
      [:step/path [:string {:min 1}]]]]
+
+   [:step/stage-sources
+    [:map {:closed true}
+     [:step/kind [:= :step/stage-sources]]
+     [:step/src-dirs [:vector [:string {:min 1}]]]
+     [:step/target-dir [:string {:min 1}]]
+     [:step/elide-doc? :boolean]]]
 
    [:step/compile
     [:map {:closed true}

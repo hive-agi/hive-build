@@ -68,6 +68,7 @@
        :project/target-dir       target-dir
        :project/class-dir        (str target-dir "/classes")
        :project/scratch-dir      (str target-dir "/aot-classes")
+       :project/staged-src-dir   (str target-dir "/aot-src")
        :project/jar-file         (naming/jar-file target-dir coord)
        :project/target-id        (:publish cfg :none)
        :project/license          (license-of cfg)

@@ -13,7 +13,8 @@
             [hive-build.promote.pom :as pom]
             [hive-build.promote.project :as project]
             [hive-build.promote.publish :as publish]
-            [hive-build.promote.classes :as classes]))
+            [hive-build.promote.classes :as classes]
+            [hive-build.promote.elide :as elide]))
 
 ;; ── Context ────────────────────────────────────────────────────────────────
 
@@ -143,14 +144,17 @@
                          :user :standard})))))
 
 (defn aot-basis
-  "Compile-time basis. Injects ONLY the overlay's :provided alias, so the
+  "Compile-time basis rooted at `src-dirs` — the staged sources — rather than
+   the project's own :paths. Injects ONLY the overlay's :provided alias, so the
    overlay's top-level :deps never reach the release compile classpath."
-  [overlay]
-  (b/create-basis
-   (cond-> {:project "deps.edn" :user :standard}
-     (get-in overlay [:aliases :provided])
-     (assoc :extra (update (select-keys overlay [:aliases]) :aliases select-keys [:provided])
-            :aliases [:provided]))))
+  [overlay src-dirs]
+  (let [provided (get-in overlay [:aliases :provided])
+        aliases  (cond-> {::staged {:replace-paths (vec src-dirs)}}
+                   provided (assoc :provided provided))]
+    (b/create-basis {:project "deps.edn"
+                     :user :standard
+                     :extra {:aliases aliases}
+                     :aliases (cond-> [::staged] provided (conj :provided))})))
 
 ;; ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -202,7 +206,7 @@
      ;; silently, so the wrong spelling binds *compiler-options* to nil and
      ;; elides nothing while every build still reports success.
      (b/compile-clj
-      (cond-> {:basis (aot-basis (:ctx/overlay ctx))
+      (cond-> {:basis (aot-basis (:ctx/overlay ctx) (:step/src-dirs step))
                :src-dirs (:step/src-dirs step)
                :ns-compile (:step/ns-compile step)
                :class-dir (:step/class-dir step)}
@@ -211,6 +215,21 @@
 
         (seq (:step/java-opts step))
         (assoc :java-opts (:step/java-opts step)))))
+
+   :step/stage-sources
+   (fn [_ctx step]
+     (b/copy-dir {:src-dirs (:step/src-dirs step)
+                  :target-dir (:step/target-dir step)})
+     (if-not (:step/elide-doc? step)
+       []
+       (into []
+             (keep (fn [path]
+                     (when (elide/clojure-source? path)
+                       (let [text (io'/read-text path)
+                             staged (elide/without-ns-docstring text)]
+                         (when (not= text staged)
+                           (io'/write-text! path staged))))))
+             (io'/files-under (:step/target-dir step)))))
 
    :step/copy-classes
    (fn [_ctx step]
@@ -249,7 +268,9 @@
                      :src-dirs (pom/pom-src-dirs (:project/src-dirs project))
                      :scm (pom/scm (:project/scm-url project)
                                    (b/git-process {:git-args "rev-parse HEAD"}))
-                     :pom-data (pom/pom-data (:project/license project))})))
+                     :pom-data (pom/pom-data (:project/license project))})
+       (let [path (pom-file ctx)]
+         (io'/write-text! path (pom/without-repositories (io'/read-text path))))))
 
    :step/jar
    (fn [_ctx step]
