@@ -90,6 +90,31 @@
          "\nEither package them (:aot/package-protocols) or declare them"
          " (:aot/allow-foreign-classes) in version.edn.")))
 
+(defn unpackaged
+  "The declared protocol class paths in `declared` that `copied` does not
+   contain.
+
+   `:aot/package-protocols` names classes by hand, so a namespace that was
+   required rather than compiled — or a protocol since renamed — leaves
+   nothing at the declared path for the copy step to find."
+  [declared copied]
+  (let [copied? (set copied)]
+    (into [] (comp (remove copied?) (distinct)) declared)))
+
+(defn unpackaged-report
+  "A build-facing description of the `absent` declared protocol classes, or nil
+   when every declared class was produced."
+  [absent]
+  (when (seq absent)
+    (str ":aot/package-protocols declares " (count absent)
+         " protocol class(es) the AOT compile did not produce:\n"
+         (str/join "\n" (map #(str "  - " %) absent))
+         "\nEither the namespace was required instead of compiled, or the"
+         " protocol was renamed. Fix version.edn or the compile set.")))
+
 (m/=> class-names [:=> [:cat :any] [:set :string]])
 (m/=> foreign-refs [:=> [:cat [:sequential :string] :map] [:vector :string]])
 (m/=> report [:=> [:cat [:sequential :string]] [:maybe :string]])
+
+(m/=> unpackaged [:=> [:cat [:sequential :string] [:sequential :string]] [:vector :string]])
+(m/=> unpackaged-report [:=> [:cat [:sequential :string]] [:maybe :string]])

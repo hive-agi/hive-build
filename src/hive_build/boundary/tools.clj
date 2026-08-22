@@ -281,10 +281,17 @@
 
    :step/copy-classes
    (fn [_ctx step]
-     (archive/copy-own-classes! (:step/from step)
-                                (:step/to step)
-                                (:step/prefixes step)
-                                (:step/files step)))
+     (let [copied (archive/copy-own-classes! (:step/from step)
+                                             (:step/to step)
+                                             (:step/prefixes step)
+                                             (:step/files step))]
+       ;; A declared protocol class the compile never produced is dropped
+       ;; silently otherwise, and the jar mounts nowhere.
+       (when-let [message (classes/unpackaged-report
+                           (classes/unpackaged (:step/files step) copied))]
+         (throw (ex-info message {:declared (:step/files step)
+                                  :from (:step/from step)})))
+       copied))
 
    :step/verify-classes
    (fn [_ctx step]

@@ -57,3 +57,27 @@
     (is (re-find #":aot/allow-foreign-classes" message)))
   (testing "a clean jar reports nothing"
     (is (nil? (classes/report [])))))
+
+(deftest unpackaged-finds-declared-classes-the-compile-never-produced
+  (let [declared ["hive_addon/protocol/IAddon.class"
+                  "hive_cache/protocol/IHiveCache.class"]]
+    (testing "a class the copy step never saw is reported"
+      (is (= ["hive_cache/protocol/IHiveCache.class"]
+             (classes/unpackaged declared ["hive_addon/protocol/IAddon.class"]))))
+    (testing "every declared class produced leaves nothing to report"
+      (is (= [] (classes/unpackaged declared declared))))
+    (testing "classes copied beyond the declared set are not the subject"
+      (is (= [] (classes/unpackaged [] ["hive_x/Y.class"]))))
+    (testing "a name declared twice is reported once"
+      (is (= ["hive_x/Y.class"]
+             (classes/unpackaged ["hive_x/Y.class" "hive_x/Y.class"] []))))))
+
+(deftest unpackaged-report-names-the-absent-classes-and-both-causes
+  (let [message (classes/unpackaged-report ["hive_cache/protocol/IHiveCache.class"])]
+    (is (re-find #"hive_cache/protocol/IHiveCache.class" message))
+    (is (re-find #":aot/package-protocols" message))
+    (testing "both ways a declared class goes missing are named"
+      (is (re-find #"required instead of compiled" message))
+      (is (re-find #"renamed" message))))
+  (testing "a complete package reports nothing"
+    (is (nil? (classes/unpackaged-report [])))))
