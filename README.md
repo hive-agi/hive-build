@@ -1,5 +1,14 @@
 # hive-build — the canonical release library for hive Clojure packages
 
+<!-- hive-badges -->
+
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.hive-agi/hive-build.svg)](https://clojars.org/io.github.hive-agi/hive-build)
+[![cljdoc](https://cljdoc.org/badge/io.github.hive-agi/hive-build)](https://cljdoc.org/d/io.github.hive-agi/hive-build/CURRENT)
+[![release](https://github.com/hive-agi/hive-build/actions/workflows/release.yml/badge.svg)](https://github.com/hive-agi/hive-build/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+<!-- /hive-badges -->
+
 `hive-build.api` is the shared `tools.build` entrypoint every hive package uses
 to jar, verify, version and publish. Consumers add one alias and get the whole
 pipeline — there is **no per-repo `build.clj`**.
