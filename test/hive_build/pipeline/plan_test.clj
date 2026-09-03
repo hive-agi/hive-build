@@ -112,8 +112,8 @@
 (deftest the-aot-jar-plan-is-exactly-this
   (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes
           :step/verify-classes :step/copy-dir :step/stamp-manifest
-          :step/write-pom :step/jar :step/normalize :step/verify-load
-          :step/announce]
+          :step/write-pom :step/jar :step/normalize :step/verify-opacity
+          :step/verify-load :step/announce]
          (kinds (plan/plan :task/jar-aot (project :gitea) facts)))))
 
 (deftest the-aot-jar-copies-only-resource-roots
@@ -127,7 +127,7 @@
   (let [p (plan/plan :task/jar-aot (project :gitea) (assoc facts :facts/resource-roots []))]
     (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes
             :step/verify-classes :step/write-pom :step/jar :step/normalize
-            :step/verify-load :step/announce]
+            :step/verify-opacity :step/verify-load :step/announce]
            (kinds p)))))
 
 (deftest the-aot-audit-defaults-to-reporting-not-failing

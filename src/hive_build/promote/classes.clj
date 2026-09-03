@@ -34,22 +34,19 @@
     15 [3 false]
     (throw (ex-info "unknown constant-pool tag" {:tag tag :offset i}))))
 
-(defn class-names
-  "Internal names of every class the class file in `bytes` references.
+(defn constant-pool
+  "The class file's constant pool, read once: `{:utf8 {slot string}
+   :class-refs [slot]}`.
 
-   Reads the constant pool only: CONSTANT_Class entries and the CONSTANT_Utf8
-   entries they point at. Array descriptors ([Lfoo/Bar;) are unwrapped to the
-   element class."
+   One walker, because every question this namespace answers is a projection of
+   the same pass. `:utf8` carries EVERY CONSTANT_Utf8 entry, not only the ones a
+   CONSTANT_Class points at, so a caller auditing what text the class ships sees
+   the same pool the linker does."
   [^bytes bytes]
   (let [count' (u2 bytes 8)]
     (loop [i 10, n 1, utf8 {}, refs []]
       (if (>= n count')
-        (into #{}
-              (comp (keep utf8)
-                    (map #(str/replace % #"^\[+L?" ""))
-                    (map #(str/replace % #";$" ""))
-                    (remove str/blank?))
-              refs)
+        {:utf8 utf8 :class-refs refs}
         (let [tag (u1 bytes i)
               [width wide?] (entry-width tag bytes (inc i))
               body (inc i)]
@@ -59,6 +56,30 @@
                    (assoc utf8 n (String. bytes (+ body 2) (u2 bytes body) "UTF-8"))
                    utf8)
                  (if (= 7 tag) (conj refs (u2 bytes body)) refs)))))))
+
+(defn class-names
+  "Internal names of every class the class file in `bytes` references.
+
+   Reads the constant pool only: CONSTANT_Class entries and the CONSTANT_Utf8
+   entries they point at. Array descriptors ([Lfoo/Bar;) are unwrapped to the
+   element class."
+  [^bytes bytes]
+  (let [{:keys [utf8 class-refs]} (constant-pool bytes)]
+    (into #{}
+          (comp (keep utf8)
+                (map #(str/replace % #"^\[+L?" ""))
+                (map #(str/replace % #";$" ""))
+                (remove str/blank?))
+          class-refs)))
+
+(defn utf8-constants
+  "Every CONSTANT_Utf8 string the class file in `bytes` carries, deduplicated.
+
+   This is the text a `strings` pass over the artifact would recover, minus the
+   guesswork: descriptors, member names, and any string literal the compiler
+   interned all sit in the same pool."
+  [^bytes bytes]
+  (into #{} (vals (:utf8 (constant-pool bytes)))))
 
 (defn foreign-refs
   "The audited class names in `names` that this jar neither owns nor ships.
@@ -112,7 +133,10 @@
          "\nEither the namespace was required instead of compiled, or the"
          " protocol was renamed. Fix version.edn or the compile set.")))
 
+(m/=> constant-pool [:=> [:cat :any] [:map [:utf8 [:map-of :int :string]]
+                                          [:class-refs [:vector :int]]]])
 (m/=> class-names [:=> [:cat :any] [:set :string]])
+(m/=> utf8-constants [:=> [:cat :any] [:set :string]])
 (m/=> foreign-refs [:=> [:cat [:sequential :string] :map] [:vector :string]])
 (m/=> report [:=> [:cat [:sequential :string]] [:maybe :string]])
 

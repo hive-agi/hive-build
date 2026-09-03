@@ -17,6 +17,8 @@
       :publish  :clojars             ; :clojars | :gitea | :gitea-source | :none
       :aot/java-opts []              ; optional, AOT compile only
       :aot/elide-meta []             ; optional, [] disables metadata elision
+      :aot/publishable-sources []    ; optional, entry prefixes whose sources ship
+      :aot/strict-opacity false      ; optional, true fails a release that leaks
       :pom-exclude-deps []}          ; optional, dropped from the published pom
 
    An untracked ./local.deps.edn may supply a `:provided` alias (host sources
@@ -39,6 +41,7 @@
      kondo           sync dependency-exported lint configs, then lint
      bump            rewrite ./VERSION (:level :patch|:minor|:major)
      verify-license  report LICENSE / version.edn / SPDX agreement (warns)
+     audit-opacity   report private strings a built jar still carries (warns)
      freeze-check    refuse a release that breaks ./freeze-policy.edn (fails)
      deploy          build + publish per :publish (no-op when :none)
 
@@ -195,6 +198,38 @@
           (throw (ex-info "clj-kondo reported findings at or above :fail-level"
                           {:fail-level fail-level :exit exit})))
         {:exit exit}))))
+
+;; ── Opacity ────────────────────────────────────────────────────────────────
+
+(defn audit-opacity
+  "Report which strings this repository's sources declared private that the
+   built jar still carries.
+
+   Reads an artifact that already exists: run `jar-aot` first, or pass :jar to
+   audit any jar on disk. The audit is the same one `jar-aot` runs, so a jar
+   built before the elision pass existed can be measured without rebuilding it.
+
+   :jar     path to the jar          (default: the coordinate under target/)
+   :strict  true to throw on a leak  (default: report and return)
+
+   A clean verdict says the audited strings are absent. It says nothing about
+   the call graph, the numeric constants, or any name."
+  [{:keys [jar strict]}]
+  (let [project (tools/read-project)
+        jar-file (or jar (:project/jar-file project))]
+    (when-not (io'/exists? jar-file)
+      (throw (ex-info (str "no artifact at " jar-file
+                           " — run `clojure -T:build jar-aot` first, or pass :jar")
+                      {:jar-file jar-file})))
+    (let [result (tools/audit-opacity!
+                  {:src-dirs (:project/src-dirs project)
+                   :jar-file jar-file
+                   :allowed-source (:project/publishable-sources project)
+                   :strict? (boolean strict)})]
+      (when (= :opacity/clean (:opacity/verdict result))
+        (println (format "Opacity OK: %s carries none of the %d audited string(s)."
+                         jar-file (:opacity/secrets-audited result))))
+      result)))
 
 ;; ── Publish ────────────────────────────────────────────────────────────────
 

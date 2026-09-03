@@ -50,7 +50,8 @@
   [_ project facts]
   (let [{:project/keys [target-dir class-dir scratch-dir staged-src-dir jar-file
                         elide-meta package-protocols aot-java-opts
-                        allow-foreign-classes strict-foreign-classes?]} project
+                        allow-foreign-classes strict-foreign-classes?
+                        publishable-sources strict-opacity?]} project
         {:facts/keys [source-roots resource-roots namespaces preload]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
     (into []
@@ -98,6 +99,14 @@
            {:step/kind :step/write-pom}
            {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
            {:step/kind :step/normalize :step/path jar-file}
+           ;; The jar is read back and compared against the sources it came
+           ;; from. Elision is a step that can stop running without failing, so
+           ;; whether it ran is a property of the artifact, not of the config.
+           {:step/kind :step/verify-opacity
+            :step/src-dirs source-roots
+            :step/jar-file jar-file
+            :step/allowed-source (vec publishable-sources)
+            :step/strict? (boolean strict-opacity?)}
            {:step/kind :step/verify-load
             :step/jar-file jar-file
             :step/namespaces namespaces

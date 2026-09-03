@@ -23,6 +23,14 @@
 (def source-extensions
   #{".clj" ".cljc" ".cljs"})
 
+(def default-publishable-sources
+  "Jar entry prefixes whose Clojure sources ship on purpose, so the opacity
+   audit does not report them.
+
+   clj-kondo reads hook source at lint time and cannot read a compiled hook, so
+   an AOT jar that exports hooks has to carry them as text."
+  ["clj-kondo.exports"])
+
 (defn source-file?
   "True when `path` names a compilable source that is not a clj-kondo export."
   [path]
@@ -79,7 +87,9 @@
        :project/aot-java-opts    (vec (:aot/java-opts cfg []))
        :project/allow-foreign-classes (into #{} (map classes/internal-name)
                                             (:aot/allow-foreign-classes cfg []))
-       :project/strict-foreign-classes? (boolean (:aot/strict-foreign-classes cfg false))})))
+       :project/strict-foreign-classes? (boolean (:aot/strict-foreign-classes cfg false))
+       :project/publishable-sources (vec (:aot/publishable-sources cfg default-publishable-sources))
+       :project/strict-opacity?  (boolean (:aot/strict-opacity cfg false))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])

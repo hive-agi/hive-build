@@ -110,7 +110,9 @@
    [:project/package-protocols [:vector LibSymbol]]
    [:project/aot-java-opts [:vector :string]]
    [:project/allow-foreign-classes [:set [:string {:min 1}]]]
-   [:project/strict-foreign-classes? :boolean]])
+   [:project/strict-foreign-classes? :boolean]
+   [:project/publishable-sources [:vector [:string {:min 1}]]]
+   [:project/strict-opacity? :boolean]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -179,6 +181,16 @@
      [:step/class-dir [:string {:min 1}]]
      [:step/prefixes [:vector [:string {:min 1}]]]
      [:step/allowed [:set [:string {:min 1}]]]
+     [:step/strict? :boolean]]]
+
+   [:step/verify-opacity
+    [:map {:closed true}
+     [:step/kind [:= :step/verify-opacity]]
+     ;; The ORIGINAL source roots, not the staged copy: the audit asks whether
+     ;; what the sources declared private survived into the artifact.
+     [:step/src-dirs [:vector [:string {:min 1}]]]
+     [:step/jar-file [:string {:min 1}]]
+     [:step/allowed-source [:vector [:string {:min 1}]]]
      [:step/strict? :boolean]]]
 
    [:step/copy-dir

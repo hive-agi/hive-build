@@ -7,13 +7,17 @@
    feature that reports success. `:compiler-options` instead of `:compile-opts`
    disabled metadata elision on every AOT jar the fleet published, and nothing
    failed."
-  (:require [clojure.set :as set]
+  (:require [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [clojure.tools.build.api :as b]
+            [hive-build.boundary.archive :as archive]
             [hive-build.boundary.tools :as tools]
             [hive-build.collect.io :as io']
             [hive-build.promote.project :as project]
-            [deps-deploy.maven-settings :as maven-settings]))
+            [deps-deploy.maven-settings :as maven-settings])
+  (:import (java.nio.file Files)
+           (java.nio.file.attribute FileAttribute)))
 
 (def compile-clj-options
   "Keys clojure.tools.build.api/compile-clj documents. Anything else passed to
@@ -193,3 +197,59 @@
                             :username "bot"
                             :password "tok"}}
              (:repository @captured))))))
+
+;; ── The opacity audit, over real directories and a real zip ───────────────
+;; Every part of this was unit tested and the wiring still shipped a bug: the
+;; source roots were handed to files-under as one vector rather than one at a
+;; time, so the first real invocation threw. A handler that walks the
+;; filesystem has to be tested against a filesystem.
+
+(defn- tmpdir [prefix]
+  (io/file (str (Files/createTempDirectory prefix (into-array FileAttribute [])))))
+
+(defn- write-source! [dir rel content]
+  (let [f (io/file dir rel)]
+    (io/make-parents f)
+    (spit f content)
+    f))
+
+(deftest audit-opacity-reads-every-source-root
+  (let [a (tmpdir "opq-a")
+        b (tmpdir "opq-b")
+        jar (io/file (tmpdir "opq-jar") "probe.jar")]
+    (write-source! a "one.clj"
+                   "(ns one\n  \"First root, a docstring long enough to audit.\")\n")
+    (write-source! b "two.clj"
+                   "(defprotocol I (m [this] \"Second root, also long enough to audit.\"))\n")
+    (archive/write-zip! (str jar) {"x/y__init.class" (.getBytes "not a class file" "UTF-8")})
+    (let [result (tools/audit-opacity! {:src-dirs [(str a) (str b)]
+                                        :jar-file (str jar)
+                                        :allowed-source []
+                                        :strict? false})]
+      (is (= 2 (:opacity/secrets-audited result))
+          "one secret per root: a single root would mean the second was skipped")
+      (is (= :opacity/clean (:opacity/verdict result)))
+      (testing "an entry that is not a class file is named, not thrown on"
+        (is (= ["x/y__init.class"] (:opacity/unread result)))
+        (is (= 0 (:opacity/entries-read result)))))))
+
+(deftest audit-opacity-reports-a-secret-the-artifact-carries
+  (let [src (tmpdir "opq-src")
+        jar (io/file (tmpdir "opq-jar") "probe.jar")
+        secret "The weighting the customer is paying for."]
+    (write-source! src "k.clj"
+                   (str "(defprotocol IRank (rank [this xs] \"" secret "\"))\n"))
+    ;; A constant pool is bytes the audit parses, so the entry is a real class:
+    ;; String's own, which cannot contain the secret.
+    (archive/write-zip! (str jar)
+                        {"k__init.class" (with-open [in (io/input-stream
+                                                         (io/resource "java/lang/String.class"))]
+                                           (.readAllBytes in))})
+    (let [clean (tools/audit-opacity! {:src-dirs [(str src)] :jar-file (str jar)
+                                       :allowed-source [] :strict? false})]
+      (is (= :opacity/clean (:opacity/verdict clean))))
+    (testing "and a jar that does carry it is refused under :strict?"
+      (archive/write-zip! (str jar) {"k.clj" (.getBytes "source" "UTF-8")})
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (tools/audit-opacity! {:src-dirs [(str src)] :jar-file (str jar)
+                                          :allowed-source [] :strict? true}))))))

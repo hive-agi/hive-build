@@ -127,6 +127,115 @@
     (str (subs source 0 start) (subs source end))
     source))
 
+;; ── defprotocol ───────────────────────────────────────────────────────────
+;; `defprotocol` records each method's :name, :arglists and :doc in the :sigs
+;; map, which is the protocol var's VALUE. :elide-meta reaches def METADATA, so
+;; the doc string is compiled into the generated __init class verbatim and ships
+;; in every AOT jar. The only place to remove it is the staged source.
+
+(defn- list-opens
+  "Indexes of every `(` in `source` that opens a form.
+
+   String literals, character literals and `;` comments are skipped, so a paren
+   inside text is never mistaken for a form."
+  [^String s]
+  (let [n (.length s)]
+    (loop [i 0, acc []]
+      (if (>= i n)
+        acc
+        (let [c (.charAt s i)]
+          (cond
+            (= \" c) (recur (or (string-end s i) n) acc)
+            (= \; c) (let [nl (.indexOf s "\n" (int i))]
+                       (recur (if (neg? nl) n (inc nl)) acc))
+            (= \\ c) (recur (min n (+ i 2)) acc)
+            (= \( c) (recur (inc i) (conj acc i))
+            :else    (recur (inc i) acc)))))))
+
+(defn- child-spans
+  "`[start end)` of each form directly inside the list opening at `i`, or nil
+   when the list is unterminated."
+  [^String s i]
+  (when-let [close (delimited-end s i \))]
+    (loop [j (skip-blanks s (inc i)), acc []]
+      (if (>= j (dec close))
+        acc
+        (if-let [e (form-end s j)]
+          (recur (skip-blanks s e) (conj acc [j e]))
+          acc)))))
+
+(defn- string-span?
+  [^String s [start _end]]
+  (= \" (.charAt s start)))
+
+(defn- sig-docstring-span
+  "`[start end)` of the docstring closing the method signature at `i`, or nil.
+
+   A signature is `(name [args]+ \"doc\"?)`, so only a TRAILING string is a
+   docstring: a string in any other position is an argument default or a form
+   this pass must not touch."
+  [^String s i]
+  (let [kids (child-spans s i)]
+    (when (> (count kids) 1)
+      (let [last-kid (peek kids)]
+        (when (and (string-span? s last-kid)
+                   (not (string-span? s (first kids))))
+          last-kid)))))
+
+(defn protocol-docstring-spans
+  "`[start end)` of every docstring inside a `defprotocol` form in `source`:
+   the protocol's own, and one per method signature. Ascending, disjoint.
+
+   Refuses rather than guesses: a form it cannot parse contributes nothing and
+   is staged unchanged."
+  [^String source]
+  (let [s source]
+    (into []
+          (comp
+           (keep (fn [open]
+                   (let [kids (child-spans s open)
+                         [hs he] (first kids)]
+                     (when (and hs (= "defprotocol" (subs s hs he)))
+                       kids))))
+           (mapcat (fn [kids]
+                     ;; kids: defprotocol, Name, doc?, sig, sig, ...
+                     (let [after-name (nthrest kids 2)
+                           own-doc (when-let [k (first after-name)]
+                                     (when (string-span? s k) k))
+                           sigs (if own-doc (rest after-name) after-name)]
+                       (into (if own-doc [own-doc] [])
+                             (keep (fn [[start _end]]
+                                     (when (= \( (.charAt s start))
+                                       (sig-docstring-span s start))))
+                             sigs)))))
+          (list-opens s))))
+
+(defn- without-spans
+  "`source` with each `[start end)` in `spans` deleted. Deleted back to front,
+   so an earlier span's indexes stay valid."
+  [^String source spans]
+  (reduce (fn [acc [start end]] (str (subs acc 0 start) (subs acc end)))
+          source
+          (sort-by first > spans)))
+
+(defn without-protocol-docstrings
+  "`source` with every `defprotocol` docstring removed.
+
+   Contract: the result differs from `source` only by deletions, and reads as
+   the same forms minus their doc strings. Arglists and method names stay,
+   being structural: the protocol does not dispatch without them."
+  [source]
+  (without-spans source (protocol-docstring-spans source)))
+
+(defn without-docstrings
+  "`source` with both classes of :elide-meta-proof docstring removed: the ns
+   form's, and every `defprotocol`'s."
+  [source]
+  (-> source without-ns-docstring without-protocol-docstrings))
+
 (m/=> clojure-source? [:=> [:cat :string] :boolean])
 (m/=> ns-docstring-span [:=> [:cat :string] [:maybe [:tuple :int :int]]])
 (m/=> without-ns-docstring [:=> [:cat :string] :string])
+(m/=> protocol-docstring-spans [:=> [:cat :string] [:vector [:tuple :int :int]]])
+(m/=> without-protocol-docstrings [:=> [:cat :string] :string])
+(m/=> without-docstrings [:=> [:cat :string] :string])

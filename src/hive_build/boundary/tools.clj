@@ -15,6 +15,7 @@
             [hive-build.promote.publish :as publish]
             [hive-build.promote.classes :as classes]
             [hive-build.promote.elide :as elide]
+            [hive-build.promote.opacity :as opacity]
             [clojure.edn :as edn]
             [deps-deploy.maven-settings :as maven-settings]))
 
@@ -242,6 +243,53 @@
         (println "WARNING:" message)))
     offenders))
 
+(defn- declared-secrets
+  "Every string the sources under `src-dirs` declare private.
+
+   Read from the ORIGINAL sources, never the staged copy: the staged copy is
+   the one the elision already ran over, so auditing it would compare the
+   artifact against an empty set and pass unconditionally."
+  [src-dirs]
+  (into #{}
+        (comp (mapcat io'/files-under)
+              (filter elide/clojure-source?)
+              (mapcat (comp opacity/source-secrets io'/read-text)))
+        src-dirs))
+
+(defn audit-opacity!
+  "Strings the built jar carries that its sources declared private. Throws under
+   :strict?, otherwise reports. Returns the audit.
+
+   Public because `api/audit-opacity` runs it against an artifact that already
+   exists, outside any plan."
+  [{:keys [src-dirs jar-file allowed-source strict?]}]
+  (let [jar (archive/entries jar-file)
+        ;; An entry named .class that is not a class file is a broken artifact,
+        ;; not a leak. It is counted and named rather than thrown on, so the
+        ;; audit reports what it could not look at instead of failing a release
+        ;; with a constant-pool error.
+        read-classes (reduce (fn [acc [entry ^bytes content]]
+                               (if-not (str/ends-with? entry ".class")
+                                 acc
+                                 (try
+                                   (assoc-in acc [:ok entry] (classes/utf8-constants content))
+                                   (catch Exception _
+                                     (update acc :unread conj entry)))))
+                             {:ok {} :unread []}
+                             jar)
+        result (opacity/audit
+                {:secrets (declared-secrets src-dirs)
+                 :constants-by-entry (:ok read-classes)
+                 :entries (keys jar)
+                 :unreadable (:unread read-classes)
+                 :allowed-source allowed-source})]
+    (when-let [message (opacity/report result)]
+      (if strict?
+        (throw (ex-info message {:findings (:opacity/findings result)
+                                 :jar-file jar-file}))
+        (println "WARNING:" message)))
+    result))
+
 (def handlers
   "Step kind -> (fn [ctx step] -> result). The tools.build implementation of
    every step a plan can contain."
@@ -274,7 +322,7 @@
              (keep (fn [path]
                      (when (elide/clojure-source? path)
                        (let [text (io'/read-text path)
-                             staged (elide/without-ns-docstring text)]
+                             staged (elide/without-docstrings text)]
                          (when (not= text staged)
                            (io'/write-text! path staged))))))
              (io'/files-under (:step/target-dir step)))))
@@ -299,6 +347,13 @@
                       :prefixes  (:step/prefixes step)
                       :allowed   (:step/allowed step)
                       :strict?   (:step/strict? step)}))
+
+   :step/verify-opacity
+   (fn [_ctx step]
+     (audit-opacity! {:src-dirs (:step/src-dirs step)
+                      :jar-file (:step/jar-file step)
+                      :allowed-source (:step/allowed-source step)
+                      :strict? (:step/strict? step)}))
 
    :step/copy-dir
    (fn [_ctx step]
