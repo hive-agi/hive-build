@@ -18,7 +18,9 @@
       :aot/java-opts []              ; optional, AOT compile only
       :aot/elide-meta []             ; optional, [] disables metadata elision
       :aot/publishable-sources []    ; optional, entry prefixes whose sources ship
-      :aot/strict-opacity false      ; optional, true fails a release that leaks
+      :aot/strict-opacity false      ; optional, overrides the target's default:
+                                     ;   a PRIVATE target (:gitea) fails a leak,
+                                     ;   a public one only reports it
       :pom-exclude-deps []}          ; optional, dropped from the published pom
 
    An untracked ./local.deps.edn may supply a `:provided` alias (host sources
@@ -225,7 +227,10 @@
                   {:src-dirs (:project/src-dirs project)
                    :jar-file jar-file
                    :allowed-source (:project/publishable-sources project)
-                   :strict? (boolean strict)})]
+                   :strict? (boolean strict)
+                   ;; Shipped source follows the release's own default, so a
+                   ;; manual audit answers the question a release would ask.
+                   :strict-source? (:project/strict-source-entries? project)})]
       (when (= :opacity/clean (:opacity/verdict result))
         (println (format "Opacity OK: %s carries none of the %d audited string(s)."
                          jar-file (:opacity/secrets-audited result))))

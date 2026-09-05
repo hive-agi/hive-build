@@ -45,6 +45,7 @@
   {:target/id :s3
    :target/artifact-kind :artifact/aot
    :target/publishes? true
+   :target/private? true
    :target/repo-url nil
    :target/repo-url-env "S3_MAVEN_URL"
    :target/repository-name "s3"
@@ -362,3 +363,28 @@
     [:doc]             true
     [:file :line]      false
     []                 false))
+
+(deftest the-opacity-gate-reaches-the-step-that-runs-it
+  (testing "a private project plans a source-strict audit of its own jar"
+    (let [p    (project :gitea
+                        :project/strict-source-entries? true
+                        :project/publishable-sources ["clj-kondo.exports"])
+          step (step-of (plan/plan :task/jar-aot p facts) :step/verify-opacity)]
+      (is (true? (:step/strict-source? step)))
+      (is (false? (:step/strict? step))
+          "privacy gates shipped source, not the docstring backlog")
+      (is (= ["clj-kondo.exports"] (:step/allowed-source step)))
+      (is (= "target/hive-thing-1.2.3.jar" (:step/jar-file step)))
+      (is (= ["src"] (:step/src-dirs step))
+          "the audit reads source roots, never the resource-only ones")))
+  (testing "the two levers travel independently"
+    (let [p    (project :clojars
+                        :project/strict-source-entries? false
+                        :project/strict-opacity? true)
+          step (step-of (plan/plan :task/jar-aot p facts) :step/verify-opacity)]
+      (is (false? (:step/strict-source? step)))
+      (is (true? (:step/strict? step)))))
+  (testing "the audit runs only after the jar it reads back exists"
+    (let [p (plan/plan :task/jar-aot (project :gitea) facts)]
+      (is (< (index-of p :step/jar) (index-of p :step/verify-opacity))
+          "a jar cannot be read back before it is written"))))

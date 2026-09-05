@@ -118,3 +118,59 @@
       (and (= (set dirs) (into (set source-roots) resource-roots))
            (empty? (set/intersection (set source-roots) (set resource-roots)))
            (= (count dirs) (+ (count source-roots) (count resource-roots)))))))
+
+;; ── The opacity gate's default strictness ─────────────────────────────────
+
+(deftest a-private-target-refuses-a-source-carrying-jar-by-default
+  (testing "a private registry gates by default, with nothing declared"
+    (is (true? (:project/strict-source-entries?
+                (project/project {:lib 'g/a :publish :gitea} "1.0.0")))))
+  (testing "a public registry only reports: the source is public anyway"
+    (is (false? (:project/strict-source-entries?
+                 (project/project {:lib 'g/a :publish :clojars} "1.0.0")))))
+  (testing "a package that publishes nowhere gates nothing"
+    (is (false? (:project/strict-source-entries?
+                 (project/project {:lib 'g/a} "1.0.0")))))
+  (testing "a private target that ships source on purpose is still private"
+    ;; :gitea-source builds :artifact/source, so no verify-opacity step is
+    ;; planned at all. The flag stays true; the exemption comes from the
+    ;; artifact kind, which is the honest place for it.
+    (is (true? (:project/strict-source-entries?
+                (project/project {:lib 'g/a :publish :gitea-source} "1.0.0"))))))
+
+(deftest the-docstring-lever-stays-off-until-a-project-asks
+  ;; Measured 2026-09-05: hive-carto's published jar carries 177 surviving
+  ;; docstrings. Defaulting THIS lever to the target's privacy would fail the
+  ;; next release of most private repos, so the two levers default apart.
+  (testing "privacy does not turn docstring leaks fatal"
+    (is (false? (:project/strict-opacity?
+                 (project/project {:lib 'g/a :publish :gitea} "1.0.0")))))
+  (testing "a project can still opt in"
+    (is (true? (:project/strict-opacity?
+                (project/project {:lib 'g/a :publish :gitea
+                                  :aot/strict-opacity true}
+                                 "1.0.0"))))))
+
+(deftest an-explicit-declaration-beats-the-target-default
+  (testing "a private target can be told to only report"
+    (is (false? (:project/strict-source-entries?
+                 (project/project {:lib 'g/a :publish :gitea
+                                   :aot/strict-source-entries false}
+                                  "1.0.0")))))
+  (testing "a public target can be told to fail"
+    (is (true? (:project/strict-source-entries?
+                (project/project {:lib 'g/a :publish :clojars
+                                  :aot/strict-source-entries true}
+                                 "1.0.0"))))))
+
+(deftest the-kondo-exemption-is-a-default-not-a-hardcoded-skip
+  (testing "hook exports ship as source, so they are allowed by default"
+    (is (= ["clj-kondo.exports"]
+           (:project/publishable-sources
+            (project/project {:lib 'g/a :publish :gitea} "1.0.0")))))
+  (testing "a project may name its own publishable prefixes instead"
+    (is (= ["public/api"]
+           (:project/publishable-sources
+            (project/project {:lib 'g/a :publish :gitea
+                              :aot/publishable-sources ["public/api"]}
+                             "1.0.0"))))))

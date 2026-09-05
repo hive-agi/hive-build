@@ -8,7 +8,8 @@
             [malli.core :as m]
             [hive-build.promote.naming :as naming]
             [hive-build.schema :as s]
-            [hive-build.promote.classes :as classes]))
+            [hive-build.promote.classes :as classes]
+            [hive-build.promote.publish :as publish]))
 
 (def default-elide-meta
   "Metadata keys stripped from every AOT class file unless version.edn
@@ -63,14 +64,26 @@
   "A Project from raw version.edn `cfg` and the resolved `version` string.
 
    Throws when :lib is not a qualified symbol: nothing downstream can name an
-   artifact without it, and a build that guesses is worse than one that stops."
+   artifact without it, and a build that guesses is worse than one that stops.
+
+   Two opacity levers, defaulted independently:
+
+     :project/strict-source-entries?  a readable source file in the artifact
+                                      fails the build. Defaults to the publish
+                                      target's privacy.
+     :project/strict-opacity?         any opacity finding, docstring leaks
+                                      included, fails the build. Defaults off
+                                      everywhere.
+
+   `:aot/strict-source-entries` and `:aot/strict-opacity` override them."
   [cfg version]
   (let [lib (:lib cfg)]
     (when-not (qualified-symbol? lib)
       (throw (ex-info "version.edn :lib must be a qualified symbol group/artifact"
                       {:lib lib})))
     (let [coord      (naming/coordinate lib version)
-          target-dir (:target-dir cfg "target")]
+          target-dir (:target-dir cfg "target")
+          target-id  (:publish cfg :none)]
       {:project/coordinate       coord
        :project/src-dirs         (vec (:src-dirs cfg ["src"]))
        :project/target-dir       target-dir
@@ -78,7 +91,7 @@
        :project/scratch-dir      (str target-dir "/aot-classes")
        :project/staged-src-dir   (str target-dir "/aot-src")
        :project/jar-file         (naming/jar-file target-dir coord)
-       :project/target-id        (:publish cfg :none)
+       :project/target-id        target-id
        :project/license          (license-of cfg)
        :project/scm-url          (:scm-url cfg)
        :project/elide-meta       (vec (:aot/elide-meta cfg default-elide-meta))
@@ -89,7 +102,10 @@
                                             (:aot/allow-foreign-classes cfg []))
        :project/strict-foreign-classes? (boolean (:aot/strict-foreign-classes cfg false))
        :project/publishable-sources (vec (:aot/publishable-sources cfg default-publishable-sources))
-       :project/strict-opacity?  (boolean (:aot/strict-opacity cfg false))})))
+       :project/strict-opacity?  (boolean (:aot/strict-opacity cfg false))
+       :project/strict-source-entries? (boolean (:aot/strict-source-entries
+                                                 cfg
+                                                 (publish/private? target-id)))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])

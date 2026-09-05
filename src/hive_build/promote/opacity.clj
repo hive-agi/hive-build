@@ -145,6 +145,28 @@
            " (:aot/elide-meta must contain :doc), or declare the entry's"
            " sources publishable."))))
 
+(defn source-findings
+  "The findings of `audit` that name a readable Clojure source the artifact
+   ships. A subset of `:opacity/findings`, never a re-audit."
+  [{:opacity/keys [findings]}]
+  (filterv #(= :finding/source-entry (:finding/kind %)) findings))
+
+(defn source-report
+  "A build-facing description of the sources a private artifact ships, or nil
+   when it ships none.
+
+   Separate from `report` because the two findings are not the same claim. A
+   docstring that survived elision is prose the artifact should not repeat; a
+   source file is the artifact not being compiled at all, and no amount of
+   elision addresses it."
+  [audit]
+  (when-let [fs (seq (source-findings audit))]
+    (str "Artifact ships readable source: " (count fs) " entry(s).\n"
+         (str/join "\n" (map #(str "  - " (:finding/where %)) fs))
+         "\nA private target publishes compiled classes only. Either this build"
+         " produced a source jar, or these entries ship on purpose and belong"
+         " in :aot/publishable-sources.")))
+
 (m/=> preview [:=> [:cat :string] :string])
 (m/=> source-secrets [:=> [:cat :string] [:set :string]])
 (m/=> leaked [:=> [:cat [:sequential :string] [:map-of :string [:set :string]]]
@@ -152,3 +174,6 @@
 (m/=> source-entries [:=> [:cat [:sequential :string] :map] [:vector :map]])
 (m/=> audit [:=> [:cat :map] :map])
 (m/=> report [:=> [:cat :map] [:maybe :string]])
+
+(m/=> source-findings [:=> [:cat :map] [:vector :map]])
+(m/=> source-report [:=> [:cat :map] [:maybe :string]])

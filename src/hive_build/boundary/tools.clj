@@ -257,12 +257,19 @@
         src-dirs))
 
 (defn audit-opacity!
-  "Strings the built jar carries that its sources declared private. Throws under
-   :strict?, otherwise reports. Returns the audit.
+  "What the built jar discloses: strings its sources declared private, and
+   readable sources it ships. Throws under either strictness flag, otherwise
+   reports. Returns the audit.
+
+   `:strict-source?` fails only on shipped source — the default for a private
+   target. `:strict?` fails on every finding, docstrings included. The source
+   check runs first: it is the more categorical failure and its message names
+   the remedy, and `report` already covers those entries when neither flag is
+   set, so nothing is printed twice.
 
    Public because `api/audit-opacity` runs it against an artifact that already
    exists, outside any plan."
-  [{:keys [src-dirs jar-file allowed-source strict?]}]
+  [{:keys [src-dirs jar-file allowed-source strict? strict-source?]}]
   (let [jar (archive/entries jar-file)
         ;; An entry named .class that is not a class file is a broken artifact,
         ;; not a leak. It is counted and named rather than thrown on, so the
@@ -283,6 +290,10 @@
                  :entries (keys jar)
                  :unreadable (:unread read-classes)
                  :allowed-source allowed-source})]
+    (when strict-source?
+      (when-let [message (opacity/source-report result)]
+        (throw (ex-info message {:findings (opacity/source-findings result)
+                                 :jar-file jar-file}))))
     (when-let [message (opacity/report result)]
       (if strict?
         (throw (ex-info message {:findings (:opacity/findings result)
@@ -353,7 +364,8 @@
      (audit-opacity! {:src-dirs (:step/src-dirs step)
                       :jar-file (:step/jar-file step)
                       :allowed-source (:step/allowed-source step)
-                      :strict? (:step/strict? step)}))
+                      :strict? (:step/strict? step)
+                      :strict-source? (:step/strict-source? step)}))
 
    :step/copy-dir
    (fn [_ctx step]

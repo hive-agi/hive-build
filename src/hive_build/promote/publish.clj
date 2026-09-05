@@ -11,6 +11,7 @@
   {:target/id :clojars
    :target/artifact-kind :artifact/source
    :target/publishes? true
+   :target/private? false
    :target/repo-url "https://repo.clojars.org"
    :target/repo-url-env nil
    :target/repository-name nil
@@ -21,6 +22,9 @@
   {:target/id :gitea
    :target/artifact-kind :artifact/aot
    :target/publishes? true
+   ;; Readable only to credential holders, so the opacity gate defaults to
+   ;; strict here: see `private?`.
+   :target/private? true
    :target/repo-url nil
    :target/repo-url-env "MAVEN_URL"
    ;; The id this repository is known by in a project's :mvn/repos AND in
@@ -39,6 +43,7 @@
   {:target/id :none
    :target/artifact-kind :artifact/source
    :target/publishes? false
+   :target/private? false
    :target/repo-url nil
    :target/repo-url-env nil
    :target/repository-name nil
@@ -75,6 +80,18 @@
   (or (get @registry id)
       (throw (ex-info "version.edn :publish names no registered target"
                       {:publish id :registered (sort (target-ids))}))))
+
+(defn private?
+  "True when `id` names a destination whose artifacts only credential holders
+   can read.
+
+   An id nobody registered answers TRUE: this is the default source for the
+   opacity gate's strictness, and an unregistered destination must not be the
+   reason a gate is skipped. Such an id still stops the release at `target`."
+  [id]
+  (if-let [t (get @registry id)]
+    (boolean (:target/private? t))
+    true))
 
 (run! register! default-targets)
 
@@ -134,6 +151,8 @@
 
 (m/=> register! [:=> [:cat s/Target] :keyword])
 (m/=> target [:=> [:cat :keyword] s/Target])
+
+(m/=> private? [:=> [:cat :keyword] :boolean])
 (m/=> required-env [:=> [:cat s/Target] [:vector [:string {:min 1}]]])
 (m/=> repo-url [:=> [:cat s/Target [:map-of :string :string]] [:maybe :string]])
 (m/=> deploy-request [:=> [:cat s/Target :map] :map])

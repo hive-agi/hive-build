@@ -51,7 +51,8 @@
   (let [{:project/keys [target-dir class-dir scratch-dir staged-src-dir jar-file
                         elide-meta package-protocols aot-java-opts
                         allow-foreign-classes strict-foreign-classes?
-                        publishable-sources strict-opacity?]} project
+                        publishable-sources strict-opacity?
+                        strict-source-entries?]} project
         {:facts/keys [source-roots resource-roots namespaces preload]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
     (into []
@@ -106,7 +107,8 @@
             :step/src-dirs source-roots
             :step/jar-file jar-file
             :step/allowed-source (vec publishable-sources)
-            :step/strict? (boolean strict-opacity?)}
+            :step/strict? (boolean strict-opacity?)
+            :step/strict-source? (boolean strict-source-entries?)}
            {:step/kind :step/verify-load
             :step/jar-file jar-file
             :step/namespaces namespaces

@@ -10,6 +10,7 @@
   {:target/id :s3
    :target/artifact-kind :artifact/aot
    :target/publishes? true
+   :target/private? true
    :target/repo-url nil
    :target/repo-url-env "S3_MAVEN_URL"
    :target/repository-name "s3"
@@ -150,3 +151,22 @@
     (is (nil? (publish/basic-auth "" "pass")))
     (is (nil? (publish/basic-auth "user" "")))
     (is (nil? (publish/basic-auth nil nil)))))
+
+;; ── Privacy is declared by the destination ────────────────────────────────
+
+(deftest every-destination-declares-whether-it-is-readable
+  (testing "the fleet's own targets"
+    (is (true? (publish/private? :gitea)))
+    (is (true? (publish/private? :gitea-source)))
+    (is (false? (publish/private? :clojars)))
+    (is (false? (publish/private? :none))))
+  (testing "a destination nobody registered answers private"
+    ;; Fail closed: an unregistered id must never be the reason an opacity
+    ;; gate is skipped. It still stops the release at `target`.
+    (is (true? (publish/private? :nowhere-at-all)))
+    (is (thrown? clojure.lang.ExceptionInfo (publish/target :nowhere-at-all))))
+  (testing "a newly registered destination supplies its own answer"
+    (publish/register! (assoc s3 :target/private? false))
+    (is (false? (publish/private? :s3)))
+    (publish/register! s3)
+    (is (true? (publish/private? :s3)))))

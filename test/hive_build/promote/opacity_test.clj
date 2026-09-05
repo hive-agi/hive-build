@@ -91,6 +91,46 @@
                    :allowed-source ["clj-kondo.exports"]})]
       (is (= ["acme/kernel.clj"] (map :finding/where (:opacity/findings result)))))))
 
+(deftest the-source-verdict-is-separable-from-the-docstring-verdict
+  ;; The two findings are not the same claim, and the fleet defaults them
+  ;; apart: shipped source fails a private release, a surviving docstring does
+  ;; not. That is only possible if the audit can be asked about one of them.
+  (let [audit (opacity/audit
+               {:secrets #{"a docstring long enough to be audited here"}
+                :constants-by-entry
+                {"acme/kernel__init.class"
+                 #{"a docstring long enough to be audited here"}}
+                :entries ["acme/kernel__init.class"
+                          "acme/kernel.clj"
+                          "clj-kondo.exports/acme/hooks/m.clj"]
+                :allowed-source ["clj-kondo.exports"]})]
+    (testing "the whole audit sees both kinds"
+      (is (= :opacity/leaking (:opacity/verdict audit)))
+      (is (= 2 (count (:opacity/findings audit)))))
+    (testing "the source view sees only the shipped source"
+      (is (= ["acme/kernel.clj"]
+             (mapv :finding/where (opacity/source-findings audit))))
+      (is (every? #(= :finding/source-entry (:finding/kind %))
+                  (opacity/source-findings audit))))
+    (testing "a hook export is exempt in both views"
+      (is (not-any? #(= "clj-kondo.exports/acme/hooks/m.clj" (:finding/where %))
+                    (:opacity/findings audit))))
+    (testing "the source report names the entry and the remedy"
+      (let [r (opacity/source-report audit)]
+        (is (re-find #"acme/kernel\.clj" r))
+        (is (re-find #":aot/publishable-sources" r))))))
+
+(deftest an-artifact-shipping-no-source-has-no-source-report
+  (let [audit (opacity/audit
+               {:secrets #{}
+                :constants-by-entry {"acme/kernel__init.class" #{}}
+                :entries ["acme/kernel__init.class"
+                          "clj-kondo.exports/acme/hooks/m.clj"]
+                :allowed-source ["clj-kondo.exports"]})]
+    (is (= [] (opacity/source-findings audit)))
+    (is (nil? (opacity/source-report audit)))
+    (is (= :opacity/clean (:opacity/verdict audit)))))
+
 (deftest the-report-names-the-entry-and-does-not-reprint-the-secret-whole
   (let [secret (apply str "S" (repeat 200 "x"))
         result (opacity/audit {:secrets #{secret}

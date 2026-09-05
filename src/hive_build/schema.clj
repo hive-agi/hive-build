@@ -75,11 +75,17 @@
 
 (def Target
   "A publish destination, as data. Supporting a new registry is a `register!`
-   of one of these and nothing else — credentials are named, never hard-coded."
+   of one of these and nothing else — credentials are named, never hard-coded.
+
+   `:target/private?` is required, not optional: a destination states whether
+   its artifacts are readable by anyone, and the opacity gate's default
+   strictness is derived from that answer rather than from a list of registry
+   ids kept somewhere else."
   [:map {:closed true}
    [:target/id :keyword]
    [:target/artifact-kind ArtifactKind]
    [:target/publishes? :boolean]
+   [:target/private? :boolean]
    [:target/repo-url [:maybe [:string {:min 1}]]]
    [:target/repo-url-env [:maybe [:string {:min 1}]]]
    [:target/repository-name [:maybe [:string {:min 1}]]]
@@ -112,7 +118,8 @@
    [:project/allow-foreign-classes [:set [:string {:min 1}]]]
    [:project/strict-foreign-classes? :boolean]
    [:project/publishable-sources [:vector [:string {:min 1}]]]
-   [:project/strict-opacity? :boolean]])
+   [:project/strict-opacity? :boolean]
+   [:project/strict-source-entries? :boolean]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -191,7 +198,11 @@
      [:step/src-dirs [:vector [:string {:min 1}]]]
      [:step/jar-file [:string {:min 1}]]
      [:step/allowed-source [:vector [:string {:min 1}]]]
-     [:step/strict? :boolean]]]
+     ;; Two levers, because the audit reports two different things. A readable
+     ;; SOURCE FILE in a private artifact is categorical; a docstring that
+     ;; survived elision is a backlog most repos still carry.
+     [:step/strict? :boolean]
+     [:step/strict-source? :boolean]]]
 
    [:step/copy-dir
     [:map {:closed true}
