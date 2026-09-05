@@ -5,20 +5,18 @@
    Isolated here so `promote.freeze` and `promote.api-surface` stay pure and
    testable without a repository."
   (:require [clojure.java.io :as jio]
-            [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [hive-build.collect.io :as io'])
+            [hive-build.collect.io :as io']
+            [hive-build.collect.git :as git])
   (:import [java.io PushbackReader StringReader]
            [java.time Instant Duration]))
 
 (defn- git
-  "Run git with `args`; {:ok? bool :out string}. Never throws."
+  "Run git with `args`; {:ok? bool :out string :err string}. Never throws.
+
+   One definition of the runner, in `collect.git`."
   [& args]
-  (try
-    (let [{:keys [exit out err]} (apply shell/sh "git" args)]
-      {:ok? (zero? exit) :out (str/trim (or out "")) :err (str/trim (or err ""))})
-    (catch Throwable t
-      {:ok? false :out "" :err (.getMessage t)})))
+  (apply git/run args))
 
 (defn last-release-tag
   "The most recent v-prefixed tag, or nil when the repo has never released."

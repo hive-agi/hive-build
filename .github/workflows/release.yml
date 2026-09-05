@@ -49,12 +49,17 @@ jobs:
       - name: Bump patch version
         run: clojure -T:build bump :level :patch
 
+      # Runs AFTER the bump and BEFORE the tag: the pending version comes from
+      # ./VERSION, which no tag names yet, so the release describes itself.
+      - name: Regenerate changelog
+        run: clojure -T:build changelog
+
       - name: Commit and tag
         run: |
           VER=$(cat VERSION)
           git config user.name  "hive-ci"
           git config user.email "ci@hive-agi.local"
-          git add VERSION
+          git add VERSION CHANGELOG.md
           # [skip ci] stops this push from retriggering the workflow.
           git commit -m "chore(release): $VER [skip ci]"
           # Annotated: `git push --follow-tags` ignores lightweight tags,

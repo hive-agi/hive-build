@@ -61,7 +61,10 @@
             [hive-build.promote.freeze :as freeze]
             [hive-build.promote.lint :as lint]
             [hive-build.promote.naming :as naming]
-            [hive-build.promote.version :as version]))
+            [hive-build.promote.version :as version]
+            [hive-build.collect.git :as git]
+            [hive-build.pipeline.changelog :as changelog-plan]
+            [hive-build.promote.changelog :as changelog]))
 
 (defn- execute!
   [task {:keys [deploy-fn probe-registry?]}]
@@ -237,6 +240,48 @@
       result)))
 
 ;; ── Publish ────────────────────────────────────────────────────────────────
+
+(defn changelog
+  "Regenerate ./CHANGELOG.md from the commits between release tags.
+
+   :depth      releases rendered in full (default 25; older ones are named in
+               the footer, not dropped)
+   :out        output path (default CHANGELOG.md)
+   :fragments  directory of authored prose (default changelog.d), where
+               <version>.md is spliced under that release's heading and
+               preamble.md replaces the generated header
+   :pending    version being cut but not yet tagged; defaults to ./VERSION
+               when no tag names it yet, so a release regenerates the file
+               BEFORE tagging and still describes itself. Pass an empty
+               string to suppress it.
+
+   The file is a projection of git, so it is rewritten in full every time and
+   nothing authored in it survives. Returns the counts it wrote."
+  [{:keys [depth out fragments pending]
+    :or {out "CHANGELOG.md" fragments "changelog.d"}}]
+  (let [tags (git/release-tags)
+        declared (some-> (io'/read-text "VERSION") str/trim not-empty)
+        pending' (cond
+                   (some? pending) (not-empty (str pending))
+                   (and declared (not (contains? (set tags) (str "v" declared)))) declared
+                   :else nil)
+        reads (cond-> {:messages-fn git/messages-between
+                       :date-fn git/tag-date
+                       :prose-fn #(io'/read-text (str fragments "/" % ".md"))
+                       :preamble (io'/read-text (str fragments "/preamble.md"))
+                       :pending pending'}
+                depth (assoc :depth depth))
+        doc (changelog-plan/document tags reads)
+        shown (count (:changelog/releases doc))]
+    (io'/write-text! out (changelog/render doc))
+    (println (format "CHANGELOG %s: %d release(s)%s from %d tag(s)"
+                     out shown
+                     (if pending' (str " including pending " pending') "")
+                     (count tags)))
+    {:changelog/path out
+     :changelog/rendered shown
+     :changelog/pending pending'
+     :changelog/tags (count tags)}))
 
 (defn deploy
   "Build + publish according to version.edn :publish.

@@ -38,11 +38,41 @@ coord 1:1. Per-repo coordinates (`:lib :minor :license :scm-url :src-dirs
 | `bump`           | read/write `VERSION` — `bump :level :patch\|:minor\|:major`       |
 | `verify-license` | assert the declared license is present and consistent            |
 | `kondo`          | clj-kondo gate                                                    |
+| `changelog`      | regenerate `CHANGELOG.md` from the commits between release tags   |
 | `deploy`         | jar + publish current `VERSION` per `version.edn :publish`        |
 
 `deploy` publishes to `:clojars`, `:gitea`, `:gitea-source`, or `:none` as
 declared in `version.edn`, and is idempotent — a version already in the target
 registry HEAD-checks and skips.
+
+## Changelog
+
+`changelog` regenerates `CHANGELOG.md` from the conventional-commit history
+between `v*` tags, in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+1.1.0 shape. `feat` becomes Added, `fix` Fixed, `perf` Faster, `refactor`
+Changed; breaking changes are lifted above every section whatever their kind;
+`docs`/`test`/`build`/`ci`/`chore`/`style`/`revert` are counted in one line
+rather than printed, so a release of pure housekeeping reads as one instead of
+as an empty release.
+
+```
+clojure -T:build changelog                 # newest 25 releases
+clojure -T:build changelog :depth 50
+```
+
+The file is **generated and disposable**: every run rewrites it in full, and
+nothing authored inside it survives. What a generator cannot derive is authored
+in `changelog.d/` instead and spliced in:
+
+| path                      | effect                                            |
+|---------------------------|---------------------------------------------------|
+| `changelog.d/<version>.md`| prose under that release's heading                |
+| `changelog.d/preamble.md` | replaces the generated header                     |
+
+That is what keeps the file and the storefront's release notes from disagreeing:
+`hive-build.promote.notes` is the single definition of what a release note is,
+and both are projections of it. Divergence gets fixed by deduplicating the
+definition, never by writing the changelog a second time by hand.
 
 ## Publishability
 
