@@ -51,8 +51,24 @@ jobs:
 
       # Runs AFTER the bump and BEFORE the tag: the pending version comes from
       # ./VERSION, which no tag names yet, so the release describes itself.
+      # The :build alias runs the PUBLISHED hive-build, so a task that first
+      # ships in the release being cut does not exist yet on this runner. A
+      # missing task skips (the next release, pinned past this one, regenerates
+      # the file); any other failure still stops the release.
       - name: Regenerate changelog
-        run: clojure -T:build changelog
+        run: |
+          set +e
+          out=$(clojure -T:build changelog 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$status" -ne 0 ]; then
+            case "$out" in
+              *"function not found: changelog"*)
+                echo "skip: the pinned hive-build predates the changelog task" ;;
+              *) exit "$status" ;;
+            esac
+          fi
 
       - name: Commit and tag
         run: |
