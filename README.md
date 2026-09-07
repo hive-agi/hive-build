@@ -13,7 +13,7 @@
 to jar, verify, version and publish. Consumers add one alias and get the whole
 pipeline — there is **no per-repo `build.clj`**.
 
-```clojure
+```edn
 ;; deps.edn, under :aliases
 :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.0"}}
         :jvm-opts ["-Xmx1g"]
@@ -39,6 +39,7 @@ coord 1:1. Per-repo coordinates (`:lib :minor :license :scm-url :src-dirs
 | `verify-license` | assert the declared license is present and consistent            |
 | `kondo`          | clj-kondo gate                                                    |
 | `changelog`      | regenerate `CHANGELOG.md` from the commits between release tags   |
+| `readme-examples`| run `README.md`'s clojure blocks in a new JVM, refute `;; =>` claims |
 | `deploy`         | jar + publish current `VERSION` per `version.edn :publish`        |
 
 `deploy` publishes to `:clojars`, `:gitea`, `:gitea-source`, or `:none` as
@@ -73,6 +74,26 @@ That is what keeps the file and the storefront's release notes from disagreeing:
 `hive-build.promote.notes` is the single definition of what a release note is,
 and both are projections of it. Divergence gets fixed by deduplicating the
 definition, never by writing the changelog a second time by hand.
+
+## README examples
+
+`readme-examples` treats every fenced ` ```clojure ` block in `README.md` as a
+claim that the code runs against this library, and every `;; => value` line
+after a form as a claim about what it answers. The blocks are rendered into
+one program under `target/` and run with `clojure -M` in a **new JVM** on the
+project's own classpath, so nothing passes because the session that wrote the
+README happened to have it loaded. A refuted claim or a form that throws
+exits non-zero and the task throws, which is the point: it runs before `bump`
+in a release workflow, next to the tests.
+
+```
+clojure -T:build readme-examples                    # README.md, project :deps
+clojure -T:build readme-examples :aliases '[:test]' # with an alias on the classpath
+```
+
+Mark a block ` ```clojure no-run ` to keep it out. A README with no runnable
+block claims nothing and passes. The observed value is what goes after `;; =>`,
+pasted from a cold run, never paraphrased from a docstring.
 
 ## Publishability
 

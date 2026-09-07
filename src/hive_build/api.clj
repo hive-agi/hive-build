@@ -48,6 +48,8 @@
      verify-license  report LICENSE / version.edn / SPDX agreement (warns)
      audit-opacity   report private strings a built jar still carries (warns)
      freeze-check    refuse a release that breaks ./freeze-policy.edn (fails)
+     readme-examples run README.md's clojure blocks in a new JVM (fails)
+     changelog       regenerate ./CHANGELOG.md from the release tags
      deploy          build + publish per :publish (no-op when :none)
 
    Release flow (what CI runs on a push to main that touches src/deps):
@@ -58,7 +60,9 @@
             [hive-build.boundary.run :as run]
             [hive-build.boundary.tools :as tools]
             [hive-build.collect.io :as io']
+            [hive-build.collect.proc :as proc]
             [hive-build.pipeline.plan :as plan]
+            [hive-build.promote.examples :as examples]
             [hive-build.promote.license :as license]
             [hive-build.promote.api-surface :as surface]
             [hive-build.promote.freeze :as freeze]
@@ -285,6 +289,45 @@
      :changelog/rendered shown
      :changelog/pending pending'
      :changelog/tags (count tags)}))
+
+(defn readme-examples
+  "Run every fenced clojure block of ./README.md in a new JVM, as the gate it is.
+
+   A code block claims that its example runs against this library, and a
+   `;; => value` line after a form claims what that form answers. The blocks
+   are rendered into one program under target/ and run with `clojure -M` in
+   a NEW process on the project's own classpath, so nothing passes because
+   the session that wrote the README happened to have it loaded. Add `no-run`
+   to a fence's info string (```clojure no-run) to keep a block out.
+
+   :readme   markdown path            (default README.md)
+   :aliases  deps aliases for the run (default [], the project's own :deps)
+   :out      generated program path   (default target/readme-examples.clj)
+
+   Prints the program's own output; THROWS when it exits non-zero, so a
+   release workflow stops on a README that lies. Returns the counts on
+   success. A README with no runnable block returns counts of zero and does
+   not throw: nothing was claimed, so nothing was refuted."
+  [{:keys [readme aliases out]
+    :or {readme "README.md" aliases [] out "target/readme-examples.clj"}}]
+  (let [blocks  (examples/blocks (or (io'/read-text readme) ""))
+        summary (examples/summary blocks)]
+    (if (zero? (:examples/runnable summary))
+      (do (println (format "readme-examples: %s holds no runnable clojure block; nothing claimed, nothing refuted"
+                           readme))
+          summary)
+      (let [flag (str "-M" (str/join (map #(str ":" (name %)) aliases)))]
+        (some-> (java.io.File. ^String out) .getParentFile .mkdirs)
+        (io'/write-text! out (examples/script blocks))
+        (println (format "readme-examples: %d runnable block(s), %d claim(s) in %s; running `clojure %s %s` in a new JVM"
+                         (:examples/runnable summary) (:examples/claims summary) readme flag out))
+        (let [{:keys [ok? exit] :as r} (proc/run {} "clojure" flag out)]
+          (when-not (str/blank? (:out r)) (print (:out r)) (flush))
+          (when-not (str/blank? (:err r)) (binding [*out* *err*] (print (:err r)) (flush)))
+          (when-not ok?
+            (throw (ex-info (format "readme-examples: %s makes a claim the code refutes (exit %d)" readme exit)
+                            (assoc summary :examples/exit exit :examples/program out))))
+          (assoc summary :examples/ok? true))))))
 
 (defn deploy
   "Build + publish according to version.edn :publish.
