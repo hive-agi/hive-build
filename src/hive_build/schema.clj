@@ -112,6 +112,7 @@
    [:project/license [:maybe License]]
    [:project/scm-url [:maybe :string]]
    [:project/elide-meta [:vector :keyword]]
+   [:project/jar-excludes [:vector [:string {:min 1}]]]
    [:project/pom-exclude-deps [:set :symbol]]
    [:project/package-protocols [:vector LibSymbol]]
    [:project/aot-java-opts [:vector :string]]
@@ -214,11 +215,23 @@
     [:map {:closed true}
      [:step/kind [:= :step/write-pom]]]]
 
+   [:step/exclude
+    [:map {:closed true}
+     [:step/kind [:= :step/exclude]]
+     [:step/class-dir [:string {:min 1}]]
+     [:step/paths [:vector [:string {:min 1}]]]]]
+
    [:step/jar
     [:map {:closed true}
      [:step/kind [:= :step/jar]]
      [:step/class-dir [:string {:min 1}]]
      [:step/jar-file [:string {:min 1}]]]]
+
+   [:step/verify-excluded
+    [:map {:closed true}
+     [:step/kind [:= :step/verify-excluded]]
+     [:step/jar-file [:string {:min 1}]]
+     [:step/paths [:vector [:string {:min 1}]]]]]
 
    [:step/normalize
     [:map {:closed true}

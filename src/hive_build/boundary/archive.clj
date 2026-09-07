@@ -23,6 +23,12 @@
                   (with-open [in (.getInputStream zf e)] (.readAllBytes in))]))
           (enumeration-seq (.entries zf)))))
 
+(defn entry-names
+  "The entry names of the zip at `path`, in name order. Reads no content."
+  [path]
+  (with-open [zf (ZipFile. (io/file path))]
+    (into (sorted-set) (map #(.getName ^ZipEntry %)) (enumeration-seq (.entries zf)))))
+
 (defn normalized-entries
   "`name->bytes` with every entry a reproducibility rule claims rewritten.
    Entries no rule claims are passed through byte for byte, never decoded."

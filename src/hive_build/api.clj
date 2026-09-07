@@ -21,6 +21,9 @@
       :aot/strict-opacity false      ; optional, overrides the target's default:
                                      ;   a PRIVATE target (:gitea) fails a leak,
                                      ;   a public one only reports it
+      :jar-excludes []               ; optional, entry paths (file or directory)
+                                     ;   pruned before the jar is written and
+                                     ;   refused if the jar still carries them
       :pom-exclude-deps []}          ; optional, dropped from the published pom
 
    An untracked ./local.deps.edn may supply a `:provided` alias (host sources

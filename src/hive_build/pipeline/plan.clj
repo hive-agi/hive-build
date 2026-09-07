@@ -34,17 +34,35 @@
   [_ project _facts]
   [{:step/kind :step/clean :step/path (:project/target-dir project)}])
 
+(defn- exclude-step
+  "The prune of `:project/jar-excludes` from `class-dir`, or nil when the
+   project excludes nothing."
+  [project class-dir]
+  (when-let [paths (seq (:project/jar-excludes project))]
+    {:step/kind :step/exclude :step/class-dir class-dir :step/paths (vec paths)}))
+
+(defn- verify-excluded-step
+  "The read-back of the built jar against `:project/jar-excludes`, or nil
+   when the project excludes nothing."
+  [project jar-file]
+  (when-let [paths (seq (:project/jar-excludes project))]
+    {:step/kind :step/verify-excluded :step/jar-file jar-file :step/paths (vec paths)}))
+
 (defmethod steps :task/jar
   [_ project _facts]
   (let [{:project/keys [target-dir src-dirs class-dir jar-file]} project]
-    [{:step/kind :step/clean :step/path target-dir}
-     {:step/kind :step/write-pom}
-     {:step/kind :step/copy-dir :step/src-dirs src-dirs :step/target-dir class-dir}
-     {:step/kind :step/stamp-manifest :step/class-dir class-dir
-      :step/version (released project)}
-     {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
-     {:step/kind :step/normalize :step/path jar-file}
-     (announce (str "Built " (label project) " " (released project) " -> " jar-file))]))
+    (into []
+          (remove nil?)
+          [{:step/kind :step/clean :step/path target-dir}
+           {:step/kind :step/write-pom}
+           {:step/kind :step/copy-dir :step/src-dirs src-dirs :step/target-dir class-dir}
+           (exclude-step project class-dir)
+           {:step/kind :step/stamp-manifest :step/class-dir class-dir
+            :step/version (released project)}
+           {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
+           {:step/kind :step/normalize :step/path jar-file}
+           (verify-excluded-step project jar-file)
+           (announce (str "Built " (label project) " " (released project) " -> " jar-file))])))
 
 (defmethod steps :task/jar-aot
   [_ project facts]
@@ -93,6 +111,7 @@
              {:step/kind :step/copy-dir
               :step/src-dirs (vec resource-roots)
               :step/target-dir class-dir})
+           (exclude-step project class-dir)
            (when (seq resource-roots)
              {:step/kind :step/stamp-manifest
               :step/class-dir class-dir
@@ -100,6 +119,7 @@
            {:step/kind :step/write-pom}
            {:step/kind :step/jar :step/class-dir class-dir :step/jar-file jar-file}
            {:step/kind :step/normalize :step/path jar-file}
+           (verify-excluded-step project jar-file)
            ;; The jar is read back and compared against the sources it came
            ;; from. Elision is a step that can stop running without failing, so
            ;; whether it ran is a property of the artifact, not of the config.

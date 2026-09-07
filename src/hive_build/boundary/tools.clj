@@ -15,6 +15,7 @@
             [hive-build.promote.publish :as publish]
             [hive-build.promote.classes :as classes]
             [hive-build.promote.elide :as elide]
+            [hive-build.promote.exclude :as exclude]
             [hive-build.promote.opacity :as opacity]
             [clojure.edn :as edn]
             [deps-deploy.maven-settings :as maven-settings]))
@@ -394,9 +395,28 @@
        (let [path (pom-file ctx)]
          (io'/write-text! path (pom/without-repositories (io'/read-text path))))))
 
+   :step/exclude
+   (fn [_ctx step]
+     (let [class-dir (:step/class-dir step)]
+       (into []
+             (keep (fn [path]
+                     (let [full (str class-dir "/" (exclude/normalize path))]
+                       (when (io'/exists? full)
+                         (b/delete {:path full})
+                         path))))
+             (:step/paths step))))
+
    :step/jar
    (fn [_ctx step]
      (b/jar {:class-dir (:step/class-dir step) :jar-file (:step/jar-file step)}))
+
+   :step/verify-excluded
+   (fn [_ctx step]
+     (let [jar-file (:step/jar-file step)
+           found (exclude/violations (:step/paths step) (archive/entry-names jar-file))]
+       (when-let [message (exclude/report found)]
+         (throw (ex-info message {:violations found :jar-file jar-file})))
+       found))
 
    :step/normalize
    (fn [_ctx step] (archive/normalize-jar! (:step/path step)))
