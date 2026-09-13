@@ -253,3 +253,40 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (tools/audit-opacity! {:src-dirs [(str src)] :jar-file (str jar)
                                           :allowed-source [] :strict? true}))))))
+
+;; ── Classpath roots the jar would not carry ───────────────────────────────
+
+(def verify-packaged-step
+  {:step/kind :step/verify-packaged :step/roots ["resources"] :step/strict? false})
+
+(deftest an-unpackaged-root-warns-a-build-and-names-the-root
+  (let [out (with-out-str ((get tools/handlers :step/verify-packaged) {} verify-packaged-step))]
+    (is (re-find #"WARNING" out))
+    (is (re-find #"resources" out))
+    (is (re-find #":src-dirs" out) "the warning says where the fix goes")))
+
+(deftest an-unpackaged-root-refuses-a-deploy
+  (let [e (try ((get tools/handlers :step/verify-packaged) {}
+                (assoc verify-packaged-step :step/strict? true))
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+    (is (some? e) "a strict check must throw, or CI publishes the incomplete jar")
+    (is (= ["resources"] (:roots (ex-data e))))
+    (is (re-find #":unpackaged-paths" (ex-message e)) "the refusal names the waiver")))
+
+(deftest unpackaged-roots-are-read-from-deps-edn-paths
+  (let [dir (Files/createTempDirectory "hive-build-paths" (make-array FileAttribute 0))
+        f #(io/file (str dir) %)]
+    (io/make-parents (f "src/a/b.clj"))
+    (spit (f "src/a/b.clj") "(ns a.b)")
+    (io/make-parents (f "resources/rules/x.toml"))
+    (spit (f "resources/rules/x.toml") "x")
+    (spit (f "deps.edn") (pr-str {:paths ["src" "resources"]}))
+    (is (= ["resources"]
+           (tools/unpackaged-roots-in (str dir)
+                                      (project/project {:lib 'io.github.hive-agi/t} "1.0.0"))))
+    (is (= []
+           (tools/unpackaged-roots-in (str dir)
+                                      (project/project {:lib 'io.github.hive-agi/t
+                                                        :src-dirs ["src" "resources"]}
+                                                       "1.0.0"))))))

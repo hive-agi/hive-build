@@ -54,6 +54,25 @@
     {:facts/source-roots sources
      :facts/resource-roots (vec (remove (set sources) src-dirs))}))
 
+(defn- trim-slashes
+  [path]
+  (str/replace path #"/+$" ""))
+
+(defn unpackaged-roots
+  "The deps.edn `paths` that hold files yet lie outside every `src-dirs` root
+   and are not `waived`, in `paths` order. `files-by-dir` maps each path to the
+   files beneath it. A path nested under a src-dir is packaged with it."
+  [paths src-dirs waived files-by-dir]
+  (let [roots (mapv trim-slashes src-dirs)
+        waived (into #{} (map trim-slashes) waived)
+        covered? (fn [p] (some #(or (= p %) (str/starts-with? p (str % "/"))) roots))]
+    (filterv (fn [path]
+               (let [p (trim-slashes path)]
+                 (and (not (covered? p))
+                      (not (contains? waived p))
+                      (boolean (seq (get files-by-dir path))))))
+             paths)))
+
 (defn- license-of
   [cfg]
   (let [{:keys [name url]} (:license cfg)]
@@ -97,6 +116,7 @@
        :project/elide-meta       (vec (:aot/elide-meta cfg default-elide-meta))
        :project/jar-excludes     (vec (:jar-excludes cfg []))
        :project/pom-exclude-deps (set (:pom-exclude-deps cfg []))
+       :project/unpackaged-paths (vec (:unpackaged-paths cfg []))
        :project/package-protocols (vec (:aot/package-protocols cfg []))
        :project/aot-java-opts    (vec (:aot/java-opts cfg []))
        :project/allow-foreign-classes (into #{} (map classes/internal-name)
@@ -115,4 +135,8 @@
        [:map {:closed true}
         [:facts/source-roots [:vector [:string {:min 1}]]]
         [:facts/resource-roots [:vector [:string {:min 1}]]]]])
+(m/=> unpackaged-roots
+      [:=> [:cat [:sequential [:string {:min 1}]] [:sequential [:string {:min 1}]]
+            [:sequential [:string {:min 1}]] [:map-of :string [:sequential :string]]]
+       [:vector [:string {:min 1}]]])
 (m/=> project [:=> [:cat :map s/VersionString] s/Project])

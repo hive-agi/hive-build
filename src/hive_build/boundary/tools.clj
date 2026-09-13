@@ -63,6 +63,18 @@
                       (publish/basic-auth (get env (:target/username-env target))
                                           (get env (:target/password-env target))))))))
 
+(defn unpackaged-roots-in
+  "The deps.edn :paths roots under `dir` that hold files but that `project`'s
+   :src-dirs will not put in the jar, minus its :unpackaged-paths waivers.
+   Returned as the paths deps.edn spells them."
+  [dir project]
+  (let [paths (vec (:paths (io'/read-edn (str dir "/deps.edn")) ["src"]))
+        files (into {} (map (fn [p] [p (io'/files-under (str dir "/" p))])) paths)]
+    (project/unpackaged-roots paths
+                              (:project/src-dirs project)
+                              (:project/unpackaged-paths project [])
+                              files)))
+
 (defn read-facts
   "Everything from the filesystem and the registry that `project`'s plan
    depends on.
@@ -80,6 +92,7 @@
     (assoc roots
            :facts/namespaces (into [] (keep io'/declared-ns) sources)
            :facts/preload (vec (:aot/preload overlay))
+           :facts/unpackaged-roots (unpackaged-roots-in "." project)
            :facts/published? (boolean
                               (when probe-registry?
                                 (published? project
@@ -307,6 +320,16 @@
    every step a plan can contain."
   {:step/clean
    (fn [_ctx step] (b/delete {:path (:step/path step)}))
+
+   :step/verify-packaged
+   (fn [_ctx step]
+     (let [roots (:step/roots step)
+           message (str "deps.edn :paths " roots " hold files the jar will not carry. "
+                        "Add them to version.edn :src-dirs, or list them under "
+                        ":unpackaged-paths when they are deliberately left out.")]
+       (if (:step/strict? step)
+         (throw (ex-info (str "REFUSED: " message) {:roots roots}))
+         (println (str "WARNING: " message)))))
 
    :step/compile
    (fn [ctx step]

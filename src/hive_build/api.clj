@@ -24,6 +24,9 @@
       :jar-excludes []               ; optional, entry paths (file or directory)
                                      ;   pruned before the jar is written and
                                      ;   refused if the jar still carries them
+      :unpackaged-paths []           ; optional, deps.edn :paths roots deliberately
+                                     ;   left out of :src-dirs (otherwise a jar
+                                     ;   warns and a deploy is refused)
       :pom-exclude-deps []}          ; optional, dropped from the published pom
 
    An untracked ./local.deps.edn may supply a `:provided` alias (host sources

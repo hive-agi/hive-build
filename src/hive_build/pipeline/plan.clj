@@ -48,12 +48,26 @@
   (when-let [paths (seq (:project/jar-excludes project))]
     {:step/kind :step/verify-excluded :step/jar-file jar-file :step/paths (vec paths)}))
 
+(defn- verify-packaged-step
+  "The check that no deps.edn :paths root holding files is left out of the
+   jar, or nil when every root is packaged. Warns; `strict-packaging` makes a
+   deploy refuse."
+  [facts]
+  (when-let [roots (seq (:facts/unpackaged-roots facts))]
+    {:step/kind :step/verify-packaged :step/roots (vec roots) :step/strict? false}))
+
+(defn- strict-packaging
+  [step]
+  (cond-> step
+    (= :step/verify-packaged (:step/kind step)) (assoc :step/strict? true)))
+
 (defmethod steps :task/jar
-  [_ project _facts]
+  [_ project facts]
   (let [{:project/keys [target-dir src-dirs class-dir jar-file]} project]
     (into []
           (remove nil?)
-          [{:step/kind :step/clean :step/path target-dir}
+          [(verify-packaged-step facts)
+           {:step/kind :step/clean :step/path target-dir}
            {:step/kind :step/write-pom}
            {:step/kind :step/copy-dir :step/src-dirs src-dirs :step/target-dir class-dir}
            (exclude-step project class-dir)
@@ -75,7 +89,8 @@
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
     (into []
           (remove nil?)
-          [{:step/kind :step/clean :step/path target-dir}
+          [(verify-packaged-step facts)
+           {:step/kind :step/clean :step/path target-dir}
            ;; The compiler's :elide-meta reaches def metadata only, so an ns
            ;; docstring is stripped here, on a staged copy, or not at all.
            {:step/kind :step/stage-sources
@@ -180,7 +195,8 @@
                       " already published — bump VERSION to release."))]
 
       :else
-      (conj (vec (steps (artifact-task (:target/artifact-kind target)) project facts))
+      (conj (mapv strict-packaging
+                  (steps (artifact-task (:target/artifact-kind target)) project facts))
             {:step/kind :step/publish
              :step/target-id (:target/id target)
              :step/installer :remote}

@@ -37,6 +37,7 @@
                         :facts/resource-roots []
                         :facts/namespaces ['hive-thing.core]
                         :facts/preload []
+                        :facts/unpackaged-roots []
                         :facts/published? published?})]
       (is (run/runnable? tools/handlers p)
           (str task " / " target-id " / published? " published?)))))
@@ -55,7 +56,14 @@
    :facts/resource-roots ["resources"]
    :facts/namespaces ['hive-thing.core 'hive-thing.impl]
    :facts/preload ['host.protocol]
+   :facts/unpackaged-roots []
    :facts/published? false})
+
+(deftest a-release-with-an-unpackaged-root-is-runnable-and-refuses-before-publishing
+  (let [p (plan/plan :task/deploy (project/project (assoc cfg :publish :clojars) "1.2.3")
+                     (assoc facts :facts/unpackaged-roots ["resources"]))]
+    (is (run/runnable? tools/handlers p))
+    (is (= :step/verify-packaged (:step/kind (first p))))))
 
 (defn trace
   "Run `task` against handlers that record instead of act. Returns the effect

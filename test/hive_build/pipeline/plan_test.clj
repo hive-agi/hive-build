@@ -39,6 +39,7 @@
    :facts/resource-roots ["resources"]
    :facts/namespaces ['hive-thing.core 'hive-thing.impl]
    :facts/preload ['host.protocol]
+   :facts/unpackaged-roots []
    :facts/published? false})
 
 (def s3
@@ -70,6 +71,30 @@
     (let [p (plan/plan task (project target-id) (assoc facts :facts/published? published?))]
       (is (nil? (m/explain s/Plan p))
           (str task " / " target-id " / published? " published?)))))
+
+(deftest an-unpackaged-root-is-reported-by-every-build-and-refused-by-deploy
+  (let [f (assoc facts :facts/unpackaged-roots ["resources"])]
+    (doseq [task [:task/jar :task/jar-aot :task/install]]
+      (let [steps (plan/plan task (project :clojars) f)
+            st (step-of steps :step/verify-packaged)]
+        (is (= ["resources"] (:step/roots st)) (str task))
+        (is (false? (:step/strict? st)) (str task " only warns"))
+        (is (= 0 (index-of steps :step/verify-packaged)) (str task " checks before building"))))
+    (let [steps (plan/plan :task/deploy (project :clojars) f)]
+      (is (true? (:step/strict? (step-of steps :step/verify-packaged))))
+      (is (< (index-of steps :step/verify-packaged) (index-of steps :step/publish))))))
+
+(deftest a-fully-packaged-project-plans-no-packaging-check
+  (doseq [task [:task/jar :task/jar-aot :task/install :task/deploy]]
+    (is (nil? (step-of (plan/plan task (project :clojars) facts) :step/verify-packaged))
+        (str task))))
+
+(deftest an-unpackaged-root-plan-still-conforms
+  (doseq [target-id (publish/target-ids)
+          task [:task/jar :task/jar-aot :task/install :task/deploy]]
+    (is (nil? (m/explain s/Plan (plan/plan task (project target-id)
+                                           (assoc facts :facts/unpackaged-roots ["resources"]))))
+        (str task " / " target-id))))
 
 (deftest an-unknown-task-has-no-plan
   (is (thrown? clojure.lang.ExceptionInfo

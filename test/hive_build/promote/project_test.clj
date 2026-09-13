@@ -49,6 +49,7 @@
       (is (= project/default-elide-meta (:project/elide-meta p)))
       (is (= #{} (:project/pom-exclude-deps p)))
       (is (= [] (:project/jar-excludes p)))
+      (is (= [] (:project/unpackaged-paths p)))
       (is (= [] (:project/package-protocols p)))
       (is (= [] (:project/aot-java-opts p))))
     (testing "a package says nothing about publishing until it opts in"
@@ -121,6 +122,47 @@
       (and (= (set dirs) (into (set source-roots) resource-roots))
            (empty? (set/intersection (set source-roots) (set resource-roots)))
            (= (count dirs) (+ (count source-roots) (count resource-roots)))))))
+
+;; ── Classpath roots the jar would not carry ───────────────────────────────
+
+(deftest a-path-root-outside-src-dirs-is-unpackaged
+  (testing "deps.edn puts resources/ on the test classpath; the jar never sees it"
+    (is (= ["resources"]
+           (project/unpackaged-roots ["src" "resources"] ["src"] []
+                                     {"src" ["src/a.clj"]
+                                      "resources" ["resources/rules/gitleaks.toml"]})))))
+
+(deftest a-root-nested-under-a-src-dir-is-packaged
+  (is (= [] (project/unpackaged-roots ["src" "src/cljel"] ["src"] []
+                                      {"src" ["src/a.clj"]
+                                       "src/cljel" ["src/cljel/a.cljel"]}))))
+
+(deftest an-empty-or-absent-root-is-not-reported
+  (is (= [] (project/unpackaged-roots ["src" "resources" "dev"] ["src"] []
+                                      {"src" ["src/a.clj"] "resources" []}))))
+
+(deftest a-waived-root-is-not-reported
+  (is (= [] (project/unpackaged-roots ["src" "dev-resources"] ["src"] ["dev-resources/"]
+                                      {"dev-resources" ["dev-resources/seed.edn"]}))))
+
+(deftest trailing-slashes-do-not-hide-coverage
+  (is (= [] (project/unpackaged-roots ["resources/"] ["resources"] []
+                                      {"resources/" ["resources/a.edn"]}))))
+
+(tc/defspec unpackaged-roots-are-uncovered-unwaived-paths-with-files 200
+  (prop/for-all [paths (gen/vector-distinct (gen/elements ["src" "src/cljel" "resources" "dev" "gen"])
+                                            {:max-elements 5})
+                 src-dirs (gen/vector-distinct (gen/elements ["src" "resources" "dev"])
+                                               {:max-elements 3})
+                 waived (gen/vector-distinct (gen/elements ["dev" "gen"]) {:max-elements 2})
+                 full? (gen/vector gen/boolean 5)]
+    (let [files (zipmap paths (map #(if % [(str "f" %2)] []) full? (range)))
+          covered? (fn [p] (some #(or (= p %) (.startsWith ^String p (str % "/"))) src-dirs))
+          expected (filterv #(and (not (covered? %))
+                                  (not ((set waived) %))
+                                  (seq (get files %)))
+                            paths)]
+      (= expected (project/unpackaged-roots paths src-dirs waived files)))))
 
 ;; ── The opacity gate's default strictness ─────────────────────────────────
 

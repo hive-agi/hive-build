@@ -113,6 +113,7 @@
    [:project/scm-url [:maybe :string]]
    [:project/elide-meta [:vector :keyword]]
    [:project/jar-excludes [:vector [:string {:min 1}]]]
+   [:project/unpackaged-paths [:vector [:string {:min 1}]]]
    [:project/pom-exclude-deps [:set :symbol]]
    [:project/package-protocols [:vector LibSymbol]]
    [:project/aot-java-opts [:vector :string]]
@@ -132,6 +133,8 @@
    [:facts/resource-roots [:vector [:string {:min 1}]]]
    [:facts/namespaces [:vector NsSymbol]]
    [:facts/preload [:vector NsSymbol]]
+   ;; deps.edn :paths roots holding files the jar will not carry.
+   [:facts/unpackaged-roots [:vector [:string {:min 1}]]]
    [:facts/published? :boolean]])
 
 (def LicenseFacts
@@ -158,6 +161,13 @@
     [:map {:closed true}
      [:step/kind [:= :step/clean]]
      [:step/path [:string {:min 1}]]]]
+
+   [:step/verify-packaged
+    [:map {:closed true}
+     [:step/kind [:= :step/verify-packaged]]
+     [:step/roots [:vector [:string {:min 1}]]]
+     ;; true refuses the release; false only warns.
+     [:step/strict? :boolean]]]
 
    [:step/stage-sources
     [:map {:closed true}

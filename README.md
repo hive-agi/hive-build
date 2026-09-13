@@ -102,6 +102,20 @@ A library is publishable only if every **runtime** `:deps` entry is
 form a complete Maven pom — keep those in `:test` / `:dev` aliases, which are
 excluded from the pom.
 
+The jar carries `version.edn :src-dirs`, not `deps.edn :paths`. A `:paths`
+root that holds files but is not under a `:src-dirs` root (typically
+`resources/`, with an `io/resource` file or a `META-INF/hive-addons` manifest)
+is on the test classpath and missing from the artifact, so the suite passes
+while every consumer breaks. `jar` and `install` print a WARNING naming the
+root; `deploy` refuses:
+
+```
+REFUSED: deps.edn :paths ["resources"] hold files the jar will not carry. ...
+```
+
+Fix by adding the root to `:src-dirs`. A root left out on purpose goes under
+`:unpackaged-paths ["dev-resources"]` in `version.edn`.
+
 ## Self-hosting lag
 
 hive-build packages itself with the **published** hive-build named by its own
