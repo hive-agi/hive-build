@@ -32,9 +32,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: DeLaGuardo/setup-clojure@13.7.0
-        with:
-          cli: latest
+      # NOT DeLaGuardo/setup-clojure: it calls the GitHub API with
+      # GITHUB_TOKEN, which under Gitea Actions is a Gitea token github.com
+      # rejects, leaving no clojure on PATH (exit 127 in a later step).
+      # The official installer touches no API and runs the same on both.
+      - name: Setup Clojure CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/clj-install.sh \
+            https://download.clojure.org/install/linux-install-1.12.4.1618.sh
+          chmod +x /tmp/clj-install.sh
+          sudo /tmp/clj-install.sh
+          clojure --version
 
       # Gate BEFORE the bump: a published pom is immutable, so a red suite
       # must not be able to mint a version, tag it and ship it.
