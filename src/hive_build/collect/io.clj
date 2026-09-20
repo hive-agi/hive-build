@@ -115,9 +115,13 @@
           {}
           ks))
 
-(defn head-ok?
-  "True when a HEAD of `url` answers 200. Any failure is false: an unreachable
-   registry must not be read as `already published`."
+(defn head-status
+  "The registry's answer to a HEAD of `url`: :present (200), :absent (any
+   other answer the registry itself gave) or :unreachable (the registry could
+   not be reached, or did not answer in time).
+
+   The three-way answer is what tells a half-landed artifact apart from a
+   spent one; `head-ok?` remains the boolean read."
   [url auth]
   (try
     (let [conn (doto ^java.net.HttpURLConnection
@@ -126,8 +130,16 @@
                  (.setConnectTimeout 10000)
                  (.setReadTimeout 10000))]
       (when auth (.setRequestProperty conn "Authorization" auth))
-      (= 200 (.getResponseCode conn)))
-    (catch Throwable _ false)))
+      (case (.getResponseCode conn)
+        200 :present
+        :absent))
+    (catch Throwable _ :unreachable)))
+
+(defn head-ok?
+  "True when a HEAD of `url` answers 200. Any failure is false: an unreachable
+   registry must not be read as `already published`."
+  [url auth]
+  (= :present (head-status url auth)))
 
 (defn on-path?
   "True when `command` answers successfully to `probe-args`."

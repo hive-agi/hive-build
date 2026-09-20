@@ -182,7 +182,8 @@
 
 (defmethod steps :task/deploy
   [_ project facts]
-  (let [target (publish/target (:project/target-id project))]
+  (let [target (publish/target (:project/target-id project))
+        state (:facts/registry-state facts)]
     (cond
       (not (:target/publishes? target))
       [(announce (str "Not shippable: " (label project)
@@ -190,9 +191,20 @@
 
       ;; Both registries are immutable, so a re-run is a no-op rather than an
       ;; error. The only way to release again is to bump VERSION.
-      (:facts/published? facts)
+      (= :complete state)
       [(announce (str "Skip: " (label project) " " (released project)
                       " already published — bump VERSION to release."))]
+
+      (= :partial state)
+      [{:step/kind :step/refuse
+        :step/reason :release/half-published
+        :step/message
+        (str "Refusing to deploy " (label project) " " (released project)
+             ": the registry holds some of this version's documents and not"
+             " others. A deploy that fails between uploads leaves the"
+             " coordinate resolvable and unusable, and immutability means it"
+             " cannot be completed by re-running, which answers 409."
+             " Delete this version from the registry, then re-run.")}]
 
       :else
       (conj (mapv strict-packaging

@@ -40,6 +40,20 @@
        "/" version
        "/" artifact-id "-" version ".pom"))
 
+(m/=> jar-url [:=> [:cat [:string {:min 1}] s/Coordinate] [:string {:min 1}]])
+
+(defn jar-url
+  "Absolute URL of `coordinate`'s jar in the Maven repository at `repo-url`.
+
+   The artifact half of the release: a pom without its jar is a poisoned
+   coordinate, so a complete read of the registry probes both documents."
+  [repo-url {:coordinate/keys [group-id artifact-id version]}]
+  (str (str/replace repo-url #"/+$" "")
+       "/" (str/replace group-id "." "/")
+       "/" artifact-id
+       "/" version
+       "/" artifact-id "-" version ".jar"))
+
 (defn ns->path
   "`ns-sym` as the classpath prefix its compiled classes live under."
   [ns-sym]

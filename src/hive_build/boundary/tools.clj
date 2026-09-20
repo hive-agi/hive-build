@@ -47,21 +47,27 @@
   []
   (io'/read-edn "local.deps.edn"))
 
-(defn published?
-  "True when this exact coordinate already exists at `target`'s registry.
+(defn registry-state
+  "What `target`'s registry holds for this exact coordinate: :absent,
+   :complete, :partial or :unknown.
 
-   Any failure to reach the registry is false: an unreachable registry must
-   not be read as `already published`, because that would silently skip a
-   release."
+   Any failure to reach the registry is :unknown, never :complete: an
+   unreachable registry must not be read as `already published`, because that
+   would silently skip a release. Both the pom and the jar are probed, because
+   a coordinate missing either one resolves and cannot be used."
   [project target]
   (let [env-keys (publish/required-env target)
         env (try (io'/env env-keys) (catch Throwable _ nil))]
     (if (or (nil? env) (not (:target/publishes? target)))
-      false
-      (when-let [url (publish/repo-url target env)]
-        (io'/head-ok? (naming/pom-url url (:project/coordinate project))
-                      (publish/basic-auth (get env (:target/username-env target))
-                                          (get env (:target/password-env target))))))))
+      :absent
+      (if-let [url (publish/repo-url target env)]
+        (let [auth (publish/basic-auth (get env (:target/username-env target))
+                                       (get env (:target/password-env target)))
+              coordinate (:project/coordinate project)]
+          (publish/registry-state
+           (io'/head-status (naming/pom-url url coordinate) auth)
+           (io'/head-status (naming/jar-url url coordinate) auth)))
+        :absent))))
 
 (defn unpackaged-roots-in
   "The deps.edn :paths roots under `dir` that hold files but that `project`'s
@@ -93,10 +99,30 @@
            :facts/namespaces (into [] (keep io'/declared-ns) sources)
            :facts/preload (vec (:aot/preload overlay))
            :facts/unpackaged-roots (unpackaged-roots-in "." project)
-           :facts/published? (boolean
-                              (when probe-registry?
-                                (published? project
-                                            (publish/target (:project/target-id project))))))))
+           :facts/registry-state (if probe-registry?
+                                   (registry-state
+                                    project
+                                    (publish/target (:project/target-id project)))
+                                   :absent))))
+
+(defn attempt-deploy!
+  "Call DEPLOY! on REQUEST, retrying a failure only while the registry still
+   holds nothing for this coordinate.
+
+   `state-fn` answers what the registry holds. Once any document has landed a
+   retry cannot help: the registry is immutable, so it answers 409, and
+   retrying is what turns an interrupted upload into a permanently
+   half-published version. The last failure is rethrown rather than swallowed."
+  [deploy! request {:keys [state-fn attempts backoff-ms sleep!]
+                    :or {attempts 3 backoff-ms 1000 sleep! #(Thread/sleep %)}}]
+  (loop [n 1]
+    (let [outcome (try {:ok (deploy! request)} (catch Exception e {:error e}))]
+      (cond
+        (contains? outcome :ok) (:ok outcome)
+        (>= n attempts) (throw (:error outcome))
+        (not= :absent (state-fn)) (throw (:error outcome))
+        :else (do (sleep! (* backoff-ms (long (Math/pow 2 (dec n)))))
+                  (recur (inc n)))))))
 
 (defn read-license-facts
   "What the licence rules are evaluated against: what version.edn declares,
@@ -465,13 +491,21 @@
                  (:target/repository-name target)
                  (io'/env-some (publish/required-env target))
                  :else (io'/env (publish/required-env target)))]
-       ((or deploy-fn default-deploy!)
+       (attempt-deploy!
+        (or deploy-fn default-deploy!)
         (resolve-repository
          (publish/deploy-request target
                                  {:artifact (:project/jar-file project)
                                   :pom-file (pom-file ctx)
                                   :env env
-                                  :installer (:step/installer step)})))))
+                                  :installer (:step/installer step)}))
+        ;; A local install has no registry to re-read, so it never retries.
+        {:attempts (if remote? 3 1)
+         :state-fn #(registry-state project target)})))
+
+   :step/refuse
+   (fn [_ctx step]
+     (throw (ex-info (:step/message step) {:reason (:step/reason step)})))
 
    :step/announce
    (fn [_ctx step] (println (:step/message step)))})

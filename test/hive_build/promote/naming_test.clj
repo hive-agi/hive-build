@@ -54,6 +54,19 @@
    :mutation false
    :num-tests 200})
 
+(st/deftrifecta-from-schema jar-url
+  hive-build.promote.naming/jar-url
+  {:in [:cat RepoUrl s/Coordinate]
+   :out [:string {:min 1}]
+   :rel (fn [[url coord] out]
+          (let [{:coordinate/keys [group-id artifact-id version]} coord]
+            (and (str/starts-with? out (str/replace url #"/+$" ""))
+                 (str/ends-with? out (str artifact-id "-" version ".jar"))
+                 (str/includes? out (str "/" (str/replace group-id "." "/") "/"))
+                 (not (str/includes? out "//maven")))))
+   :mutation false
+   :num-tests 200})
+
 (st/deftrifecta-from-schema ns->path
   hive-build.promote.naming/ns->path
   {:in s/NsSymbol
@@ -79,21 +92,31 @@
             :coordinate/version "1.0.0"}
            (naming/coordinate 'thing "1.0.0")))))
 
-(deftest pom-url-is-the-immutability-probe
-  (testing "the exact document whose presence means this coordinate is spent"
+(deftest a-coordinate-is-both-documents-not-the-pom-alone
+  (testing "the pom is half the probe: its presence alone does not mean spent"
     (is (= (str "https://repo.clojars.org/io/github/hive-agi/hive-build"
                 "/0.1.0/hive-build-0.1.0.pom")
            (naming/pom-url "https://repo.clojars.org"
                            {:coordinate/group-id "io.github.hive-agi"
                             :coordinate/artifact-id "hive-build"
                             :coordinate/version "0.1.0"}))))
+  (testing "the jar is the other half, and the two differ only in extension"
+    (let [coord {:coordinate/group-id "io.github.hive-agi"
+                 :coordinate/artifact-id "hive-build"
+                 :coordinate/version "0.1.0"}]
+      (is (= (str "https://repo.clojars.org/io/github/hive-agi/hive-build"
+                  "/0.1.0/hive-build-0.1.0.jar")
+             (naming/jar-url "https://repo.clojars.org" coord)))
+      (is (= (str/replace (naming/pom-url "https://repo.clojars.org" coord) #"\.pom$" ".jar")
+             (naming/jar-url "https://repo.clojars.org" coord)))))
   (testing "a trailing slash on the registry does not produce a doubled slash"
-    (is (= (naming/pom-url "https://x.test/maven" {:coordinate/group-id "g"
-                                                   :coordinate/artifact-id "a"
-                                                   :coordinate/version "1.0.0"})
-           (naming/pom-url "https://x.test/maven/" {:coordinate/group-id "g"
-                                                    :coordinate/artifact-id "a"
-                                                    :coordinate/version "1.0.0"})))))
+    (doseq [url-fn [naming/pom-url naming/jar-url]]
+      (is (= (url-fn "https://x.test/maven" {:coordinate/group-id "g"
+                                             :coordinate/artifact-id "a"
+                                             :coordinate/version "1.0.0"})
+             (url-fn "https://x.test/maven/" {:coordinate/group-id "g"
+                                              :coordinate/artifact-id "a"
+                                              :coordinate/version "1.0.0"}))))))
 
 (deftest own-class-admits-only-this-projects-namespaces
   (let [prefixes ["hive_build/promote" "hive_build/schema"]]

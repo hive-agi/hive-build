@@ -11,7 +11,8 @@
             [hive-build.pipeline.plan :as plan]
             [hive-build.promote.project :as project]
             [hive-build.promote.publish :as publish]
-            [hive-build.schema :as s]))
+            [hive-build.schema :as s]
+            [clojure.string :as str]))
 
 ;; ── The registry must cover the schema ────────────────────────────────────
 
@@ -28,7 +29,7 @@
 (deftest every-plan-of-every-task-is-runnable
   (doseq [target-id (publish/target-ids)
           task [:task/clean :task/jar :task/jar-aot :task/install :task/deploy]
-          published? [true false]]
+          state [:absent :complete :partial :unknown]]
     (let [p (plan/plan task
                        (project/project {:lib 'io.github.hive-agi/hive-thing
                                          :publish target-id}
@@ -38,9 +39,9 @@
                         :facts/namespaces ['hive-thing.core]
                         :facts/preload []
                         :facts/unpackaged-roots []
-                        :facts/published? published?})]
+                        :facts/registry-state state})]
       (is (run/runnable? tools/handlers p)
-          (str task " / " target-id " / published? " published?)))))
+          (str task " / " target-id " / registry " state)))))
 
 ;; ── A release, driven end to end ──────────────────────────────────────────
 
@@ -57,7 +58,7 @@
    :facts/namespaces ['hive-thing.core 'hive-thing.impl]
    :facts/preload ['host.protocol]
    :facts/unpackaged-roots []
-   :facts/published? false})
+   :facts/registry-state :absent})
 
 (deftest a-release-with-an-unpackaged-root-is-runnable-and-refuses-before-publishing
   (let [p (plan/plan :task/deploy (project/project (assoc cfg :publish :clojars) "1.2.3")
@@ -148,9 +149,36 @@
     (is (nil? published))))
 
 (deftest re-releasing-a-published-coordinate-touches-nothing
-  (let [{:keys [steps published]} (trace :task/deploy cfg (assoc facts :facts/published? true))]
+  (let [{:keys [steps published]} (trace :task/deploy cfg
+                                         (assoc facts :facts/registry-state :complete))]
     (is (= [:step/announce] (mapv :step/kind steps)))
     (is (nil? published))))
+
+(deftest a-half-published-coordinate-refuses-and-never-reaches-the-registry
+  (testing "the 522 shape: the pom landed, the jar did not"
+    (let [p (plan/plan :task/deploy (project/project cfg "1.2.3")
+                       (assoc facts :facts/registry-state :partial))]
+      (is (= [:step/refuse] (mapv :step/kind p))
+          "a half-published version must not be skipped as though it were spent")
+      (is (run/runnable? tools/handlers p))
+      (testing "and the REAL handler fails the release rather than publishing"
+        ;; Not `trace`: it swaps every handler for a recorder, which would
+        ;; answer for a refusal that never refuses.
+        (let [thrown (try (run/run! tools/handlers
+                                    {:ctx/project (project/project cfg "1.2.3")} p)
+                          nil
+                          (catch Exception e e))]
+          (is (some? thrown) "the refusal must throw, so CI goes red")
+          (is (= :release/half-published (:reason (ex-data thrown))))
+          (is (str/includes? (ex-message thrown) "1.2.3"))
+          (is (str/includes? (ex-message thrown) "Delete this version")))))))
+
+(deftest an-unreachable-registry-still-deploys
+  (testing "a registry we could not read must never be the reason a release is skipped"
+    (let [{:keys [steps published]} (trace :task/deploy cfg
+                                           (assoc facts :facts/registry-state :unknown))]
+      (is (some #{:step/publish} (mapv :step/kind steps)))
+      (is (some? published)))))
 
 (deftest an-install-never-carries-credentials
   (let [{:keys [published]} (trace :task/install cfg facts)]

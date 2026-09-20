@@ -149,6 +149,20 @@
       (and named? (not (and (seq username) (seq password))))
       (assoc :repository repo-name))))
 
+(defn registry-state
+  "What the registry holds, given what a HEAD of the pom and of the jar
+   answered. Each argument is :present, :absent or :unreachable.
+
+   A coordinate is both documents. Reading only one of them cannot tell a
+   spent version from a half-landed one, and under Maven immutability a
+   half-landed one can never be completed: it has to be deleted."
+  [pom jar]
+  (cond
+    (or (= :unreachable pom) (= :unreachable jar)) :unknown
+    (= :present pom jar)                           :complete
+    (= :absent pom jar)                            :absent
+    :else                                          :partial))
+
 (m/=> register! [:=> [:cat s/Target] :keyword])
 (m/=> target [:=> [:cat :keyword] s/Target])
 

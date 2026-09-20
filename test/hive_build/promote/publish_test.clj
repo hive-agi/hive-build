@@ -170,3 +170,32 @@
     (is (false? (publish/private? :s3)))
     (publish/register! s3)
     (is (true? (publish/private? :s3)))))
+
+;; ── What the registry holds ───────────────────────────────────────────────
+
+(deftest registry-state-is-total-over-every-pair-of-answers
+  (testing "every combination of two probes maps to exactly one state"
+    (let [answers [:present :absent :unreachable]
+          table (into {} (for [pom answers jar answers]
+                           [[pom jar] (publish/registry-state pom jar)]))]
+      (is (= 9 (count table)))
+      (is (every? #{:absent :complete :partial :unknown} (vals table)))
+      (is (nil? (m/explain s/RegistryState (publish/registry-state :present :absent)))))))
+
+(deftest a-coordinate-missing-either-document-is-partial-not-published
+  (testing "the 522 shape: the pom landed and the jar did not"
+    (is (= :partial (publish/registry-state :present :absent))))
+  (testing "and the mirror case, however it arose"
+    (is (= :partial (publish/registry-state :absent :present))))
+  (testing "both present is the only spent coordinate"
+    (is (= :complete (publish/registry-state :present :present))))
+  (testing "neither present is a fresh one"
+    (is (= :absent (publish/registry-state :absent :absent)))))
+
+(deftest an-unreachable-probe-is-never-read-as-published
+  (testing "whichever document could not be read, the answer is unknown"
+    (doseq [other [:present :absent :unreachable]]
+      (is (= :unknown (publish/registry-state :unreachable other)))
+      (is (= :unknown (publish/registry-state other :unreachable)))))
+  (testing "unknown is not complete, so it can never cause a silent skip"
+    (is (not= :complete (publish/registry-state :unreachable :present)))))

@@ -125,6 +125,14 @@
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
+(def RegistryState
+  "What the registry holds for a coordinate.
+
+   :absent nothing landed, :complete every document landed, :partial some but
+   not all, :unknown the registry could not be reached. A coordinate is more
+   than one document, so two values cannot express what the registry holds."
+  [:enum :absent :complete :partial :unknown])
+
 (def Facts
   "Everything read from the filesystem or the network that a plan depends on.
    Collected once at the boundary so planning stays pure and total."
@@ -135,7 +143,7 @@
    [:facts/preload [:vector NsSymbol]]
    ;; deps.edn :paths roots holding files the jar will not carry.
    [:facts/unpackaged-roots [:vector [:string {:min 1}]]]
-   [:facts/published? :boolean]])
+   [:facts/registry-state RegistryState]])
 
 (def LicenseFacts
   [:map {:closed true}
@@ -266,6 +274,12 @@
      [:step/kind [:= :step/stamp-manifest]]
      [:step/class-dir [:string {:min 1}]]
      [:step/version VersionString]]]
+
+   [:step/refuse
+    [:map {:closed true}
+     [:step/kind [:= :step/refuse]]
+     [:step/reason :keyword]
+     [:step/message [:string {:min 1}]]]]
 
    [:step/announce
     [:map {:closed true}

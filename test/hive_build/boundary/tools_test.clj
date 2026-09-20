@@ -290,3 +290,62 @@
                                       (project/project {:lib 'io.github.hive-agi/t
                                                         :src-dirs ["src" "resources"]}
                                                        "1.0.0"))))))
+
+;; ── Retrying a deploy, and when it must not ───────────────────────────────
+
+(defn- deploy-stub
+  "A deploy! that throws for the first N calls, then succeeds. Records the
+   number of attempts it saw."
+  [n calls]
+  (fn [_request]
+    (swap! calls inc)
+    (if (<= @calls n)
+      (throw (ex-info "gateway timeout" {:status 522}))
+      :deployed)))
+
+(def ^:private no-sleep {:backoff-ms 0 :sleep! (fn [_] nil)})
+
+(deftest a-transient-failure-retries-while-the-registry-is-still-empty
+  (let [calls (atom 0)]
+    (is (= :deployed
+           (tools/attempt-deploy! (deploy-stub 2 calls) {}
+                                  (merge no-sleep {:state-fn (constantly :absent)}))))
+    (is (= 3 @calls) "two failures and the successful third attempt")))
+
+(deftest a-failure-after-something-landed-is-never-retried
+  (testing "immutability means a retry answers 409 and makes the poison permanent"
+    (doseq [state [:partial :complete :unknown]]
+      (let [calls (atom 0)
+            thrown (try (tools/attempt-deploy!
+                         (deploy-stub 99 calls) {}
+                         (merge no-sleep {:state-fn (constantly state)}))
+                        nil
+                        (catch Exception e e))]
+        (is (some? thrown) (str state " must rethrow"))
+        (is (= 1 @calls)
+            (str "a deploy that failed with the registry " state
+                 " must not be attempted again"))))))
+
+(deftest the-last-failure-is-rethrown-not-swallowed
+  (let [calls (atom 0)
+        thrown (try (tools/attempt-deploy! (deploy-stub 99 calls) {}
+                                           (merge no-sleep {:state-fn (constantly :absent)}))
+                    nil
+                    (catch Exception e e))]
+    (is (some? thrown) "exhausting the attempts must fail the release")
+    (is (= 522 (:status (ex-data thrown))) "and it must be the registry's own error")
+    (is (= 3 @calls) "the default budget is three attempts")))
+
+(deftest a-deploy-that-succeeds-never-probes-the-registry
+  (let [probed (atom 0)]
+    (is (= :deployed (tools/attempt-deploy! (constantly :deployed) {}
+                                            (merge no-sleep
+                                                   {:state-fn #(do (swap! probed inc) :absent)}))))
+    (is (zero? @probed) "the happy path must not cost a network round trip")))
+
+(deftest a-nil-returning-deploy-counts-as-success
+  (testing "deps-deploy answers nil, which must not read as a failure"
+    (let [calls (atom 0)]
+      (is (nil? (tools/attempt-deploy! (fn [_] (swap! calls inc) nil) {}
+                                       (merge no-sleep {:state-fn (constantly :absent)}))))
+      (is (= 1 @calls)))))

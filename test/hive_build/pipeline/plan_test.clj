@@ -40,7 +40,7 @@
    :facts/namespaces ['hive-thing.core 'hive-thing.impl]
    :facts/preload ['host.protocol]
    :facts/unpackaged-roots []
-   :facts/published? false})
+   :facts/registry-state :absent})
 
 (def s3
   {:target/id :s3
@@ -67,10 +67,10 @@
 (deftest every-plan-conforms-to-the-plan-schema
   (doseq [target-id (publish/target-ids)
           task [:task/clean :task/jar :task/jar-aot :task/install :task/deploy]
-          published? [true false]]
-    (let [p (plan/plan task (project target-id) (assoc facts :facts/published? published?))]
+          state [:absent :complete :partial :unknown]]
+    (let [p (plan/plan task (project target-id) (assoc facts :facts/registry-state state))]
       (is (nil? (m/explain s/Plan p))
-          (str task " / " target-id " / published? " published?)))))
+          (str task " / " target-id " / registry " state)))))
 
 (deftest an-unpackaged-root-is-reported-by-every-build-and-refused-by-deploy
   (let [f (assoc facts :facts/unpackaged-roots ["resources"])]
@@ -250,7 +250,8 @@
 (deftest an-already-published-coordinate-is-a-no-op-not-an-error
   (testing "both registries are immutable, so releasing again means bumping VERSION"
     (doseq [target-id [:clojars :gitea :gitea-source]]
-      (let [p (plan/plan :task/deploy (project target-id) (assoc facts :facts/published? true))]
+      (let [p (plan/plan :task/deploy (project target-id)
+                         (assoc facts :facts/registry-state :complete))]
         (is (= [:step/announce] (kinds p)) (str target-id))
         (is (not (plan/publishes? p)))
         (is (re-find #"already published" (:step/message (first p))))
@@ -356,13 +357,18 @@
 
 (tc/defspec deploy-publishes-exactly-when-the-target-ships-a-fresh-coordinate 200
   (prop/for-all [target-id (gen/elements (vec (publish/target-ids)))
-                 published? gen/boolean]
+                 state (gen/elements [:absent :complete :partial :unknown])]
     (let [target (publish/target target-id)
           p (plan/plan :task/deploy (project target-id)
-                       (assoc facts :facts/published? published?))
-          should-publish? (and (:target/publishes? target) (not published?))]
+                       (assoc facts :facts/registry-state state))
+          ;; :unknown deploys: a registry we could not read must never be the
+          ;; reason a release is skipped. :partial refuses instead.
+          should-publish? (and (:target/publishes? target)
+                               (contains? #{:absent :unknown} state))]
       (and (= should-publish? (plan/publishes? p))
            (= should-publish? (plan/builds-jar? p))
+           (= (and (:target/publishes? target) (= :partial state))
+              (= [:step/refuse] (mapv :step/kind p)))
            (nil? (m/explain s/Plan p))))))
 
 ;; ── The ns docstring the compiler cannot elide ────────────────────────────
