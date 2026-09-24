@@ -18,6 +18,9 @@
       :aot/java-opts []              ; optional, AOT compile only
       :aot/elide-meta []             ; optional, [] disables metadata elision
       :aot/publishable-sources []    ; optional, entry prefixes whose sources ship
+      :aot/source-namespaces []      ; optional, namespaces shipped as source text:
+                                     ;   not compiled, not load-checked (for
+                                     ;   integrations of optional libraries)
       :aot/strict-opacity false      ; optional, overrides the target's default:
                                      ;   a PRIVATE target (:gitea) fails a leak,
                                      ;   a public one only reports it
@@ -32,6 +35,8 @@
    An untracked ./local.deps.edn may supply a `:provided` alias (host sources
    that must be on the AOT compile classpath but must NOT enter the pom) and an
    `:aot/preload` namespace vector compiled ahead of this lib's own namespaces.
+   The project's own deps.edn may declare a `:provided` alias too; it reaches
+   the AOT compile classpath, never the pom or the load check.
 
    `:publish` is the ONLY thing that differs between packages — the task names
    are identical everywhere, so one CI workflow drives the whole fleet:
