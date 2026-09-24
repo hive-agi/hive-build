@@ -289,6 +289,38 @@
     (testing "it is not a private registry, so the opacity gate keeps its public default"
       (is (not (publish/private? :clojars-aot))))))
 
+(deftest a-source-namespace-ships-as-text-and-escapes-every-aot-check
+  (let [f (assoc facts
+                 :facts/namespaces ['hive-thing.core 'hive-thing.impl 'hive-thing.typed]
+                 :facts/ns-files {'hive-thing.typed "hive_thing/typed.cljc"})
+        p (plan/plan :task/jar-aot
+                     (project :clojars-aot :project/source-namespaces ['hive-thing.typed]
+                              :project/publishable-sources ["clj-kondo.exports"])
+                     f)
+        compile-ns (:step/ns-compile (step-of p :step/compile))
+        copies     (filter #(= :step/copy-classes (:step/kind %)) p)]
+    (testing "it is never compiled, never class-copied, never class-audited, never load-verified"
+      (is (not (some #{'hive-thing.typed} compile-ns)))
+      (is (some #{'hive-thing.core} compile-ns))
+      (is (not (some #{"hive_thing/typed"} (:step/prefixes (first copies)))))
+      (is (not (some #{"hive_thing/typed"} (:step/prefixes (step-of p :step/verify-classes)))))
+      (is (= ['hive-thing.core 'hive-thing.impl]
+             (:step/namespaces (step-of p :step/verify-load)))))
+    (testing "its source file, at the path the facts found, is copied from the staged sources"
+      (is (= {:step/kind :step/copy-classes :step/from "target/aot-src" :step/to "target/classes"
+              :step/prefixes [] :step/files ["hive_thing/typed.cljc"]}
+             (second copies))))
+    (testing "the opacity audit allows exactly that file"
+      (is (= ["clj-kondo.exports" "hive_thing/typed.cljc"]
+             (:step/allowed-source (step-of p :step/verify-opacity)))))
+    (testing "the plan is still a well-formed value"
+      (is (nil? (m/explain s/Plan p))))))
+
+(deftest no-source-namespaces-plans-exactly-as-before
+  (let [p (plan/plan :task/jar-aot (project :gitea) facts)]
+    (is (= 1 (count (filter #(= :step/copy-classes (:step/kind %)) p))))
+    (is (= (:facts/namespaces facts) (:step/namespaces (step-of p :step/verify-load))))))
+
 (deftest an-install-is-local-and-never-reaches-a-registry
   (doseq [target-id (publish/target-ids)]
     (let [p (plan/plan :task/install (project target-id) facts)]

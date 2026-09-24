@@ -121,7 +121,8 @@
    [:project/strict-foreign-classes? :boolean]
    [:project/publishable-sources [:vector [:string {:min 1}]]]
    [:project/strict-opacity? :boolean]
-   [:project/strict-source-entries? :boolean]])
+   [:project/strict-source-entries? :boolean]
+   [:project/source-namespaces [:vector NsSymbol]]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -143,6 +144,8 @@
    [:facts/preload [:vector NsSymbol]]
    ;; deps.edn :paths roots holding files the jar will not carry.
    [:facts/unpackaged-roots [:vector [:string {:min 1}]]]
+   ;; Each namespace's source file, relative to its source root.
+   [:facts/ns-files {:optional true} [:map-of NsSymbol [:string {:min 1}]]]
    [:facts/registry-state RegistryState]])
 
 (def LicenseFacts

@@ -91,12 +91,19 @@
   [project {:keys [probe-registry? overlay]}]
   (let [src-dirs (:project/src-dirs project)
         roots (project/classify-roots src-dirs (io'/files-by-dir src-dirs))
-        sources (into [] (comp (mapcat io'/files-under)
-                               (filter project/source-file?)
-                               (remove #(str/ends-with? % ".cljs")))
-                      (:facts/source-roots roots))]
+        by-root (for [root (:facts/source-roots roots)
+                      path (io'/files-under root)
+                      :when (and (project/source-file? path)
+                                 (not (str/ends-with? path ".cljs")))]
+                  [root path])
+        sources (mapv second by-root)]
     (assoc roots
            :facts/namespaces (into [] (keep io'/declared-ns) sources)
+           :facts/ns-files (into {}
+                                 (keep (fn [[root path]]
+                                         (when-let [ns (io'/declared-ns path)]
+                                           [ns (subs path (inc (count (str/replace root #"/+$" ""))))])))
+                                 by-root)
            :facts/preload (vec (:aot/preload overlay))
            :facts/unpackaged-roots (unpackaged-roots-in "." project)
            :facts/registry-state (if probe-registry?
@@ -187,17 +194,21 @@
                          :user :standard})))))
 
 (defn aot-basis
-  "Compile-time basis rooted at `src-dirs` — the staged sources — rather than
-   the project's own :paths. Injects ONLY the overlay's :provided alias, so the
-   overlay's top-level :deps never reach the release compile classpath."
+  "Compile-time basis rooted at `src-dirs` (the staged sources) rather than
+   the project's own :paths. Adds the project deps.edn :provided alias when
+   declared, and the overlay's :provided alias when present; never the
+   overlay's top-level :deps. Neither reaches the pom."
   [overlay src-dirs]
-  (let [provided (get-in overlay [:aliases :provided])
-        aliases  (cond-> {::staged {:replace-paths (vec src-dirs)}}
-                   provided (assoc :provided provided))]
+  (let [provided  (get-in overlay [:aliases :provided])
+        declared? (contains? (:aliases (io'/read-edn "deps.edn")) :provided)
+        aliases   (cond-> {::staged {:replace-paths (vec src-dirs)}}
+                    provided (assoc ::overlay-provided provided))]
     (b/create-basis {:project "deps.edn"
                      :user :standard
                      :extra {:aliases aliases}
-                     :aliases (cond-> [::staged] provided (conj :provided))})))
+                     :aliases (cond-> [::staged]
+                                declared? (conj :provided)
+                                provided  (conj ::overlay-provided))})))
 
 ;; ── Handlers ───────────────────────────────────────────────────────────────
 

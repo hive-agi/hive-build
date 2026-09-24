@@ -78,15 +78,24 @@
            (verify-excluded-step project jar-file)
            (announce (str "Built " (label project) " " (released project) " -> " jar-file))])))
 
+(defn source-namespace-files
+  "Jar entry paths of `source-namespaces`, from `ns-files` when the facts know
+   the file, else the .clj path the namespace name implies (so a missing one
+   is reported by the copy as declared-but-absent rather than dropped)."
+  [source-namespaces ns-files]
+  (mapv #(get ns-files % (str (naming/ns->path %) ".clj")) source-namespaces))
+
 (defmethod steps :task/jar-aot
   [_ project facts]
   (let [{:project/keys [target-dir class-dir scratch-dir staged-src-dir jar-file
                         elide-meta package-protocols aot-java-opts
                         allow-foreign-classes strict-foreign-classes?
                         publishable-sources strict-opacity?
-                        strict-source-entries?]} project
-        {:facts/keys [source-roots resource-roots namespaces preload]} facts
-        protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)]
+                        strict-source-entries? source-namespaces]} project
+        {:facts/keys [source-roots resource-roots namespaces preload ns-files]} facts
+        protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)
+        compiled     (vec (remove (set source-namespaces) namespaces))
+        source-files (source-namespace-files source-namespaces ns-files)]
     (into []
           (remove nil?)
           [(verify-packaged-step facts)
@@ -102,7 +111,7 @@
            {:step/kind :step/compile
             :step/src-dirs [staged-src-dir]
             :step/ns-compile (into [] (distinct)
-                                   (concat protocol-namespaces preload namespaces))
+                                   (concat protocol-namespaces preload compiled))
             :step/class-dir scratch-dir
             :step/elide-meta elide-meta
             :step/java-opts aot-java-opts}
@@ -112,14 +121,21 @@
            {:step/kind :step/copy-classes
             :step/from scratch-dir
             :step/to class-dir
-            :step/prefixes (mapv naming/ns->path namespaces)
+            :step/prefixes (mapv naming/ns->path compiled)
             :step/files (mapv naming/protocol->class-path package-protocols)}
+           ;; :aot/source-namespaces ship as their (staged) source text.
+           (when (seq source-files)
+             {:step/kind :step/copy-classes
+              :step/from staged-src-dir
+              :step/to class-dir
+              :step/prefixes []
+              :step/files source-files})
            ;; What was copied is audited against what it links to: a hardcoded
            ;; foreign class the jar does not ship mounts nowhere, and says so
            ;; only when someone tries.
            {:step/kind :step/verify-classes
             :step/class-dir class-dir
-            :step/prefixes (mapv naming/ns->path namespaces)
+            :step/prefixes (mapv naming/ns->path compiled)
             :step/allowed (or allow-foreign-classes #{})
             :step/strict? (boolean strict-foreign-classes?)}
            (when (seq resource-roots)
@@ -141,16 +157,21 @@
            {:step/kind :step/verify-opacity
             :step/src-dirs source-roots
             :step/jar-file jar-file
-            :step/allowed-source (vec publishable-sources)
+            :step/allowed-source (into (vec publishable-sources) source-files)
             :step/strict? (boolean strict-opacity?)
             :step/strict-source? (boolean strict-source-entries?)}
+           ;; Source namespaces are not required here: their optional deps are
+           ;; deliberately absent from the declared classpath.
            {:step/kind :step/verify-load
             :step/jar-file jar-file
-            :step/namespaces namespaces
+            :step/namespaces compiled
             :step/java-opts aot-java-opts}
            (announce (str "Built AOT " (label project) " " (released project)
                           " -> " jar-file
-                          " (" (count namespaces) " ns, own .class only)"))])))
+                          " (" (count compiled) " ns, own .class only"
+                          (when (seq source-files)
+                            (str "; " (count source-files) " ns as source"))
+                          ")"))])))
 
 (defn artifact-task
   "The build task that produces `kind`."

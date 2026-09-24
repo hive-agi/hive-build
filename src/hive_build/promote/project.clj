@@ -126,7 +126,8 @@
        :project/strict-opacity?  (boolean (:aot/strict-opacity cfg false))
        :project/strict-source-entries? (boolean (:aot/strict-source-entries
                                                  cfg
-                                                 (publish/private? target-id)))})))
+                                                 (publish/private? target-id)))
+       :project/source-namespaces (mapv symbol (:aot/source-namespaces cfg []))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])
