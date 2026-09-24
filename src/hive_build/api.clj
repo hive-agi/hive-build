@@ -14,7 +14,7 @@
       :license  {:name \"MIT\" :url \"https://opensource.org/licenses/MIT\"}
       :scm-url  \"https://github.com/hive-agi/hive-thing\"
       :src-dirs [\"src\"]
-      :publish  :clojars             ; :clojars | :gitea | :gitea-source | :none
+      :publish  :clojars             ; :clojars | :clojars-aot | :gitea | :gitea-source | :none
       :aot/java-opts []              ; optional, AOT compile only
       :aot/elide-meta []             ; optional, [] disables metadata elision
       :aot/publishable-sources []    ; optional, entry prefixes whose sources ship
@@ -37,6 +37,7 @@
    are identical everywhere, so one CI workflow drives the whole fleet:
 
      :clojars       public source jar   -> repo.clojars.org
+     :clojars-aot   public AOT jar      -> repo.clojars.org
      :gitea         AOT no-source jar   -> private Gitea Maven registry
      :gitea-source  source jar          -> private Gitea Maven registry
      :none          builds, never ships

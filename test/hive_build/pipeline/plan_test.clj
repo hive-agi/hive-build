@@ -249,7 +249,7 @@
 
 (deftest an-already-published-coordinate-is-a-no-op-not-an-error
   (testing "both registries are immutable, so releasing again means bumping VERSION"
-    (doseq [target-id [:clojars :gitea :gitea-source]]
+    (doseq [target-id [:clojars :clojars-aot :gitea :gitea-source]]
       (let [p (plan/plan :task/deploy (project target-id)
                          (assoc facts :facts/registry-state :complete))]
         (is (= [:step/announce] (kinds p)) (str target-id))
@@ -277,6 +277,17 @@
     (testing "same destination, source jar"
       (is (not-any? #{:step/compile :step/copy-classes} (kinds p)))
       (is (= :gitea-source (:step/target-id (step-of p :step/publish)))))))
+
+(deftest clojars-aot-ships-the-aot-jar-to-the-public-registry
+  (let [p (plan/plan :task/deploy (project :clojars-aot) facts)]
+    (testing "public destination, compiled artifact"
+      (is (= [:step/clean :step/stage-sources :step/compile :step/copy-classes]
+             (take 4 (kinds p))))
+      (is (plan/compiles? :task/deploy (project :clojars-aot)))
+      (is (= {:step/kind :step/publish :step/target-id :clojars-aot :step/installer :remote}
+             (step-of p :step/publish))))
+    (testing "it is not a private registry, so the opacity gate keeps its public default"
+      (is (not (publish/private? :clojars-aot))))))
 
 (deftest an-install-is-local-and-never-reaches-a-registry
   (doseq [target-id (publish/target-ids)]

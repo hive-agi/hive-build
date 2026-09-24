@@ -34,8 +34,13 @@
         (is (boolean? (:target/publishes? t)))
         (is (map? (publish/deploy-request t {:artifact "a.jar" :pom-file "pom.xml" :env {}})))))))
 
-(deftest the-four-hive-destinations-are-registered
-  (is (= #{:clojars :gitea :gitea-source :none} (publish/target-ids))))
+(deftest the-hive-destinations-are-registered
+  (is (= #{:clojars :clojars-aot :gitea :gitea-source :none} (publish/target-ids))))
+
+(deftest clojars-aot-differs-from-clojars-only-in-the-artifact
+  (is (= :artifact/aot (:target/artifact-kind (publish/target :clojars-aot))))
+  (is (= (dissoc (publish/target :clojars) :target/id :target/artifact-kind)
+         (dissoc (publish/target :clojars-aot) :target/id :target/artifact-kind))))
 
 (deftest an-unknown-publish-value-stops-the-release
   (testing "falling through to a default destination would publish a private

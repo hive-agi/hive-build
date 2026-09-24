@@ -39,6 +39,13 @@
          :target/id :gitea-source
          :target/artifact-kind :artifact/source))
 
+(def clojars-aot
+  "Public Clojars, AOT jar: the interfaces of a library's protocols ship as
+   class files, so AOT consumers load from a plain classpath."
+  (assoc clojars
+         :target/id :clojars-aot
+         :target/artifact-kind :artifact/aot))
+
 (def none
   {:target/id :none
    :target/artifact-kind :artifact/source
@@ -51,7 +58,7 @@
    :target/password-env nil})
 
 (def default-targets
-  [clojars gitea gitea-source none])
+  [clojars clojars-aot gitea gitea-source none])
 
 (defonce ^:private registry (atom {}))
 
