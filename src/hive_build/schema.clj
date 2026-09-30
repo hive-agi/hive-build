@@ -122,7 +122,8 @@
    [:project/publishable-sources [:vector [:string {:min 1}]]]
    [:project/strict-opacity? :boolean]
    [:project/strict-source-entries? :boolean]
-   [:project/source-namespaces [:vector NsSymbol]]])
+   [:project/source-namespaces [:vector NsSymbol]]
+   [:project/ship-sources? {:optional true} :boolean]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 

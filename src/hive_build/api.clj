@@ -21,6 +21,10 @@
       :aot/source-namespaces []      ; optional, namespaces shipped as source text:
                                      ;   not compiled, not load-checked (for
                                      ;   integrations of optional libraries)
+      :aot/ship-sources false        ; optional, true ships every source root
+                                     ;   beside the classes (cljs consumers);
+                                     ;   classes are stamped newer, so the JVM
+                                     ;   still loads the AOT class
       :aot/strict-opacity false      ; optional, overrides the target's default:
                                      ;   a PRIVATE target (:gitea) fails a leak,
                                      ;   a public one only reports it
