@@ -13,6 +13,16 @@
   "1980-01-01T00:00:00Z — the earliest instant the ZIP format can represent."
   315532800000)
 
+(def class-epoch
+  "Two seconds after `zip-epoch`, one ZIP time tick. Clojure loads a .class only
+   when it is strictly newer than a .clj/.cljc beside it."
+  (+ zip-epoch 2000))
+
+(defn entry-time
+  "The stamp of `entry-name`: `class-epoch` for a class file, else `zip-epoch`."
+  [entry-name]
+  (if (str/ends-with? entry-name ".class") class-epoch zip-epoch))
+
 (defn entries
   "{entry-name -> bytes} for every entry of the zip at `path`, in name order."
   [path]
@@ -44,18 +54,20 @@
 
 (defn write-zip!
   "Write `name->bytes` to `path`, in name order, every entry stamped
-   `zip-epoch`."
+   `entry-time`."
   [path name->bytes]
   (with-open [out (ZipOutputStream. (io/output-stream path))]
     (doseq [[entry-name ^bytes content] (sort-by key name->bytes)]
-      (.putNextEntry out (doto (ZipEntry. ^String entry-name) (.setTime zip-epoch)))
+      (.putNextEntry out (doto (ZipEntry. ^String entry-name)
+                           (.setTime (long (entry-time entry-name)))))
       (.write out content)
       (.closeEntry out)))
   path)
 
 (defn normalize-jar!
   "Rewrite the jar at `path` in place: entries sorted by name, every entry
-   stamped `zip-epoch`, and every entry a reproducibility rule claims rewritten.
+   stamped by `entry-time`, and every entry a reproducibility rule claims
+   rewritten.
 
    Contract: two builds of identical inputs produce byte-identical jars, so any
    difference between two copies of an artifact is content."

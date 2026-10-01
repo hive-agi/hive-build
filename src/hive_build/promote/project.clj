@@ -94,7 +94,8 @@
                                       included, fails the build. Defaults off
                                       everywhere.
 
-   `:aot/strict-source-entries` and `:aot/strict-opacity` override them."
+   `:aot/strict-source-entries` and `:aot/strict-opacity` override them.
+   `:aot/ship-sources` puts every source root beside the AOT classes."
   [cfg version]
   (let [lib (:lib cfg)]
     (when-not (qualified-symbol? lib)
@@ -127,7 +128,8 @@
        :project/strict-source-entries? (boolean (:aot/strict-source-entries
                                                  cfg
                                                  (publish/private? target-id)))
-       :project/source-namespaces (mapv symbol (:aot/source-namespaces cfg []))})))
+       :project/source-namespaces (mapv symbol (:aot/source-namespaces cfg []))
+       :project/ship-sources?    (boolean (:aot/ship-sources cfg false))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])

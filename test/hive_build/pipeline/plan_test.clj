@@ -321,6 +321,43 @@
     (is (= 1 (count (filter #(= :step/copy-classes (:step/kind %)) p))))
     (is (= (:facts/namespaces facts) (:step/namespaces (step-of p :step/verify-load))))))
 
+(deftest ship-sources-copies-every-source-root-beside-the-classes
+  (let [p (plan/plan :task/jar-aot
+                     (project :clojars-aot :project/ship-sources? true
+                              :project/strict-source-entries? false)
+                     facts)
+        copies (filter #(= :step/copy-dir (:step/kind %)) p)]
+    (testing "the unstaged source roots are copied into the class dir"
+      (is (some #{{:step/kind :step/copy-dir :step/src-dirs ["src"]
+                   :step/target-dir "target/classes"}}
+                copies)))
+    (testing "every namespace is still compiled and load-verified"
+      (is (= (:facts/namespaces facts) (:step/namespaces (step-of p :step/verify-load)))))
+    (testing "the sources are copied before the jar is written and normalized"
+      (let [ks (kinds p)
+            at #(.indexOf ^java.util.List ks %)]
+        (is (< (at :step/verify-classes) (at :step/jar) (at :step/normalize)))))
+    (testing "a public jar shipping sources on purpose skips the opacity audit"
+      (is (nil? (step-of p :step/verify-opacity))))
+    (testing "the plan is still a well-formed value"
+      (is (nil? (m/explain s/Plan p))))))
+
+(deftest ship-sources-on-a-strict-target-still-audits-and-refuses
+  (let [p (plan/plan :task/jar-aot
+                     (project :gitea :project/ship-sources? true
+                              :project/strict-source-entries? true
+                              :project/publishable-sources [])
+                     facts)]
+    (is (true? (:step/strict-source? (step-of p :step/verify-opacity))))))
+
+(deftest ship-sources-off-plans-exactly-as-before
+  (let [base (plan/plan :task/jar-aot (project :clojars-aot) facts)
+        off  (plan/plan :task/jar-aot (project :clojars-aot :project/ship-sources? false) facts)]
+    (is (= base off))
+    (is (some? (step-of base :step/verify-opacity)))
+    (is (not-any? #(= ["src"] (:step/src-dirs %))
+                  (filter #(= :step/copy-dir (:step/kind %)) base)))))
+
 (deftest an-install-is-local-and-never-reaches-a-registry
   (doseq [target-id (publish/target-ids)]
     (let [p (plan/plan :task/install (project target-id) facts)]

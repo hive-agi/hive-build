@@ -91,7 +91,8 @@
                         elide-meta package-protocols aot-java-opts
                         allow-foreign-classes strict-foreign-classes?
                         publishable-sources strict-opacity?
-                        strict-source-entries? source-namespaces]} project
+                        strict-source-entries? source-namespaces
+                        ship-sources?]} project
         {:facts/keys [source-roots resource-roots namespaces preload ns-files]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)
         compiled     (vec (remove (set source-namespaces) namespaces))
@@ -138,6 +139,12 @@
             :step/prefixes (mapv naming/ns->path compiled)
             :step/allowed (or allow-foreign-classes #{})
             :step/strict? (boolean strict-foreign-classes?)}
+           ;; :aot/ship-sources: the unstaged sources ride beside the classes
+           ;; (cljs consumers); normalize stamps classes newer so JVM loads them.
+           (when (and ship-sources? (seq source-roots))
+             {:step/kind :step/copy-dir
+              :step/src-dirs (vec source-roots)
+              :step/target-dir class-dir})
            (when (seq resource-roots)
              {:step/kind :step/copy-dir
               :step/src-dirs (vec resource-roots)
@@ -154,12 +161,14 @@
            ;; The jar is read back and compared against the sources it came
            ;; from. Elision is a step that can stop running without failing, so
            ;; whether it ran is a property of the artifact, not of the config.
-           {:step/kind :step/verify-opacity
-            :step/src-dirs source-roots
-            :step/jar-file jar-file
-            :step/allowed-source (into (vec publishable-sources) source-files)
-            :step/strict? (boolean strict-opacity?)
-            :step/strict-source? (boolean strict-source-entries?)}
+           ;; A jar that ships its sources on purpose is not opaque by design.
+           (when (or (not ship-sources?) strict-source-entries?)
+             {:step/kind :step/verify-opacity
+              :step/src-dirs source-roots
+              :step/jar-file jar-file
+              :step/allowed-source (into (vec publishable-sources) source-files)
+              :step/strict? (boolean strict-opacity?)
+              :step/strict-source? (boolean strict-source-entries?)})
            ;; Source namespaces are not required here: their optional deps are
            ;; deliberately absent from the declared classpath.
            {:step/kind :step/verify-load
@@ -171,6 +180,7 @@
                           " (" (count compiled) " ns, own .class only"
                           (when (seq source-files)
                             (str "; " (count source-files) " ns as source"))
+                          (when ship-sources? "; sources shipped")
                           ")"))])))
 
 (defn artifact-task

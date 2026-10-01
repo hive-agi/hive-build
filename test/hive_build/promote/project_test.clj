@@ -219,3 +219,9 @@
             (project/project {:lib 'g/a :publish :gitea
                               :aot/publishable-sources ["public/api"]}
                              "1.0.0"))))))
+
+(deftest ship-sources-is-opt-in
+  (is (false? (:project/ship-sources? (project/project {:lib 'g/a :publish :clojars-aot} "1.0.0"))))
+  (is (true? (:project/ship-sources? (project/project {:lib 'g/a :publish :clojars-aot
+                                                       :aot/ship-sources true}
+                                                      "1.0.0")))))
