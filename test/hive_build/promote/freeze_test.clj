@@ -38,7 +38,15 @@
     (let [s (surface-of (str "(ns a.b) (defonce -guard (do (defprotocol P "
                              "(m [this] [this x] \"doc\") (n [this] \"doc\"))))"))]
       (is (= :defprotocol (:kind (get s "a.b/P"))))
-      (is (= {"m" #{1 2} "n" #{1}} (:methods (get s "a.b/P")))))))
+      (is (= {"m" #{1 2} "n" #{1}} (:methods (get s "a.b/P"))))))
+  (testing "a compare-and-set! guard is a top-level when; the protocol inside
+            is still published (hive-spi.memory.ports/IMemoryStore)"
+    (let [s (surface-of (str "(ns a.b) (defonce ^:private -p? (atom false)) "
+                             "(when (compare-and-set! -p? false true) "
+                             "(defprotocol P (m [this] \"doc\"))) "
+                             "(when-not false (defn f [x] x))"))]
+      (is (= {"m" #{1}} (:methods (get s "a.b/P"))))
+      (is (= #{1} (:arities (get s "a.b/f")))))))
 
 (deftest an-unreadable-file-yields-no-surface-not-an-exception
   (is (= [] (gitf/read-forms "(ns a.b) (defn oops [")))
