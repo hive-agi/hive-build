@@ -45,6 +45,21 @@ jobs:
           sudo /tmp/clj-install.sh
           clojure --version
 
+      # Licence gate. LICENSE, version.edn :license and the src SPDX headers
+      # must agree, and a published pom can never be retracted, so drift has to
+      # stop the run rather than scroll past as a warning. `:strict true` throws
+      # on hive-build >= the release that added it; the grep keeps an older
+      # pinned hive-build (which ignores :strict and only warns) failing too.
+      - name: Verify licence
+        run: |
+          set -euo pipefail
+          out=$(clojure -T:build verify-license :strict true 2>&1) || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s\n' "$out" | grep -q 'WARNING: license inconsistency'; then
+            echo "::error::licence drift: LICENSE, version.edn and SPDX headers disagree"
+            exit 1
+          fi
+
       # Gate BEFORE the bump: a published pom is immutable, so a red suite
       # must not be able to mint a version, tag it and ship it.
       - name: Test
