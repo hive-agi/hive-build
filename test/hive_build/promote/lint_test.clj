@@ -30,9 +30,11 @@
   {:in [:vector [:enum "src" "resources" "test" "test-swarm" "test-resources" "dev" "target"]]
    :out [:vector [:string {:min 1}]]
    :rel (fn [in out]
-          (and (= out (vec (sort (distinct out))))
-               (every? #(str/starts-with? % "test") out)
-               (= (set out) (set (filter #(str/starts-with? % "test") in)))))
+          (let [root? #(and (str/starts-with? % "test")
+                            (not (str/ends-with? % "-resources")))]
+            (and (= out (vec (sort (distinct out))))
+                 (every? root? out)
+                 (= (set out) (set (filter root? in))))))
    :mutation false
    :num-tests 200})
 
@@ -42,6 +44,8 @@
            (lint/lint-candidates ["src" "resources"] ["src" "resources" "test-swarm" "test" "dev"]))))
   (testing "no test* directory on the tree falls back to test/, which the caller drops when absent"
     (is (= ["src" "test"] (lint/lint-candidates ["src"] ["src" "dev"]))))
+  (testing "test-resources holds fixtures and is not linted"
+    (is (= ["src" "test"] (lint/lint-candidates ["src"] ["src" "test" "test-resources"]))))
   (testing "a root named both as a source dir and a test root appears once"
     (is (= ["src" "test"] (lint/lint-candidates ["src" "test"] ["src" "test"])))))
 
