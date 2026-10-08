@@ -45,6 +45,13 @@
   (spit (io/file path) text)
   path)
 
+(defn dir-names
+  "Names of the directories directly under `dir`, or [] when it is absent."
+  [dir]
+  (into [] (comp (filter #(.isDirectory ^java.io.File %))
+                 (map #(.getName ^java.io.File %)))
+        (or (.listFiles (io/file dir)) [])))
+
 (defn files-under
   "Paths of every regular file beneath `dir`, or () when `dir` is absent."
   [dir]
