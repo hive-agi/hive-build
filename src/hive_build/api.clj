@@ -21,6 +21,10 @@
       :aot/source-namespaces []      ; optional, namespaces shipped as source text:
                                      ;   not compiled, not load-checked (for
                                      ;   integrations of optional libraries)
+      :aot/ship-sources false        ; optional, true ships every source root
+                                     ;   beside the classes (cljs consumers);
+                                     ;   classes are stamped newer, so the JVM
+                                     ;   still loads the AOT class
       :aot/strict-opacity false      ; optional, overrides the target's default:
                                      ;   a PRIVATE target (:gitea) fails a leak,
                                      ;   a public one only reports it
@@ -54,7 +58,8 @@
      install         build + install to ~/.m2 (offline)
      kondo           sync dependency-exported lint configs, then lint
      bump            rewrite ./VERSION (:level :patch|:minor|:major)
-     verify-license  report LICENSE / version.edn / SPDX agreement (warns)
+     verify-license  report LICENSE / version.edn / SPDX agreement
+                     (warns; :strict true fails, as CI runs it)
      audit-opacity   report private strings a built jar still carries (warns)
      freeze-check    refuse a release that breaks ./freeze-policy.edn (fails)
      readme-examples run README.md's clojure blocks in a new JVM (fails)
@@ -62,6 +67,7 @@
      deploy          build + publish per :publish (no-op when :none)
 
    Release flow (what CI runs on a push to main that touches src/deps):
+     clojure -T:build verify-license :strict true
      clojure -T:build bump :level :patch
      clojure -T:build deploy"
   (:require [clojure.string :as str]
@@ -132,19 +138,34 @@
 
 ;; ── Licence ────────────────────────────────────────────────────────────────
 
-(defn verify-license
-  "Report whether ./LICENSE, version.edn :license and the src SPDX headers
-   agree. Advisory: prints and returns the report, never fails the build."
-  [_]
-  (let [project (tools/read-project)
-        report (license/report (tools/read-license-facts project))
-        label (naming/coordinate-label (:project/coordinate project))]
+(defn license-verdict
+  "Print `report` for `project` and decide. With `strict?` an inconsistent
+   report THROWS, so a CI step fails loudly instead of scrolling past a
+   warning; without it the report is returned either way (advisory)."
+  [project report strict?]
+  (let [label (naming/coordinate-label (:project/coordinate project))]
     (if (:report/ok? report)
       (println "License OK:" (get-in project [:project/license :license/name]))
       (do (println "WARNING: license inconsistency in" label)
           (doseq [p (:report/problems report)] (println "  -" p))
-          (println "  A published pom can never be retracted.")))
+          (println "  A published pom can never be retracted.")
+          (when strict?
+            (throw (ex-info (str "verify-license: " label " disagrees with its own licence: "
+                                 (str/join "; " (:report/problems report)))
+                            {:license/report report})))))
     report))
+
+(defn verify-license
+  "Report whether ./LICENSE, version.edn :license and the src SPDX headers
+   agree. Advisory by default: prints and returns the report.
+
+   `:strict true` (what CI runs) throws on any inconsistency:
+     clojure -T:build verify-license :strict true"
+  [{:keys [strict]}]
+  (let [project (tools/read-project)]
+    (license-verdict project
+                     (license/report (tools/read-license-facts project))
+                     (boolean strict))))
 
 (defn freeze-check
   "Refuse a release that breaks the repository's freeze policy.

@@ -56,13 +56,15 @@
           body))
 
 (defn- unwrap
-  "Forms to consider, flattening the `(do ...)` / `(defonce _ (do ...))` wrappers
-   the contract repos use to make protocol definitions reload-safe."
+  "Forms to consider, flattening the `(do ...)` / `(defonce _ (do ...))` /
+   `(when test ...)` / `(when-not test ...)` wrappers the contract repos use to
+   make protocol definitions reload-safe."
   [form]
   (cond
     (not (seq? form)) []
     (= 'do (first form)) (mapcat unwrap (rest form))
     (and (= 'defonce (first form)) (seq (drop 2 form))) (mapcat unwrap (drop 2 form))
+    (#{'when 'when-not} (first form)) (mapcat unwrap (drop 2 form))
     :else [form]))
 
 (defn- form->entry
