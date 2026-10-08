@@ -224,6 +224,8 @@
 
    :aliases    deps aliases whose classpath is scanned  (default [:test])
    :paths      lint targets                             (default src + test)
+               the default lints EVERY top-level test* root (test,
+               test-swarm, ...), discovered from the tree
    :fail-level :error (default) | :warning | nil to report only"
   [{:keys [aliases paths fail-level]
     :or {aliases [:test] fail-level :error}}]
@@ -233,7 +235,8 @@
           cp (lint/classpath [(tools/deps-classpath aliases) (tools/bb-classpath)])
           targets (or (seq paths)
                       (filterv io'/exists?
-                               (lint/lint-candidates (:project/src-dirs project))))]
+                               (lint/lint-candidates (:project/src-dirs project)
+                                                     (io'/dir-names "."))))]
       (tools/run-process (lint/sync-command cp))
       (let [{:keys [exit]} (tools/run-process (lint/lint-command (vec targets) fail-level))]
         (when (and fail-level (pos? exit))
