@@ -129,3 +129,30 @@ jobs:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
         run: clojure -T:build deploy
+
+      # Assert the EFFECT, not the step: a deploy that was skipped, gated off by
+      # an unset secret, or answered by a runner that never ran it is green and
+      # publishes nothing. The coordinate must now be in the registry, probed
+      # with credentials where the registry is private (anonymous reads answer
+      # 401, which looks exactly like `missing`). Retried because a registry
+      # index can trail the upload by a few seconds.
+      - name: Verify published
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3 4 5; do
+            out=$(clojure -T:build verify-published 2>&1)
+            status=$?
+            printf '%s\n' "$out"
+            case "$out" in
+              *"function not found: verify-published"*)
+                echo "::warning::the pinned hive-build predates verify-published; the release is UNVERIFIED"
+                exit 0 ;;
+            esac
+            [ "$status" -eq 0 ] && exit 0
+            sleep 20
+          done
+          echo "::error::the release reported success but its coordinate is not in the registry"
+          exit 1

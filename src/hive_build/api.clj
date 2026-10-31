@@ -65,11 +65,13 @@
      readme-examples run README.md's clojure blocks in a new JVM (fails)
      changelog       regenerate ./CHANGELOG.md from the release tags
      deploy          build + publish per :publish (no-op when :none)
+     verify-published fail unless the coordinate is in the registry (after deploy)
 
    Release flow (what CI runs on a push to main that touches src/deps):
      clojure -T:build verify-license :strict true
      clojure -T:build bump :level :patch
-     clojure -T:build deploy"
+     clojure -T:build deploy
+     clojure -T:build verify-published"
   (:require [clojure.string :as str]
             [hive-build.boundary.freeze :as gitf]
             [hive-build.boundary.run :as run]
@@ -367,3 +369,14 @@
   [opts]
   (verify-license opts)
   (execute! :task/deploy (assoc opts :probe-registry? true)))
+
+(defn verify-published
+  "Fail unless the coordinate this checkout releases is in its registry.
+
+   Run after `deploy` in CI. A green deploy step is not proof of a release: a
+   runner that never picked the job up, or a deploy gated off by a missing
+   secret, reports success and publishes nothing. This asserts the effect, with
+   an authenticated probe for a private registry, whose anonymous answer (401)
+   cannot be told apart from `missing`."
+  [_opts]
+  (tools/verify-published! (tools/read-project)))
