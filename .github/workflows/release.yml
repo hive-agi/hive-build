@@ -130,12 +130,7 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
         run: clojure -T:build deploy
 
-      # Assert the EFFECT, not the step: a deploy that was skipped, gated off by
-      # an unset secret, or answered by a runner that never ran it is green and
-      # publishes nothing. The coordinate must now be in the registry, probed
-      # with credentials where the registry is private (anonymous reads answer
-      # 401, which looks exactly like `missing`). Retried because a registry
-      # index can trail the upload by a few seconds.
+      # Fails unless the released pom and jar are in the registry; retried 5x20s.
       - name: Verify published
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
