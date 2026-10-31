@@ -170,6 +170,60 @@
     (= :absent pom jar)                            :absent
     :else                                          :partial))
 
+(def ProbeState
+  "What a post-deploy probe found: a RegistryState, or the reason no probe
+   could be made (:no-url, :no-credentials)."
+  [:enum :absent :complete :partial :unknown :no-url :no-credentials])
+
+(def VerifyInput
+  [:map {:closed true}
+   [:verify/label [:string {:min 1}]]
+   [:verify/state ProbeState]])
+
+(def Verdict
+  [:map {:closed true}
+   [:verdict/ok? :boolean]
+   [:verdict/state ProbeState]
+   [:verdict/message [:string {:min 1}]]])
+
+(defn probe-auth
+  "How a post-deploy probe of `target` must be made with `env`:
+   {:probe/url u :probe/auth a}, or {:probe/skip reason} when it cannot be.
+
+   A private target with no credentials is NOT probed: its registry answers 401
+   to an anonymous read, which is indistinguishable from `missing` and would
+   send the operator hunting for a deploy bug that is a secret problem."
+  [target env]
+  (let [url (repo-url target env)
+        auth (basic-auth (get env (:target/username-env target))
+                         (get env (:target/password-env target)))]
+    (cond
+      (nil? url) {:probe/skip :no-url}
+      (and (:target/private? target) (nil? auth)) {:probe/skip :no-credentials}
+      :else {:probe/url url :probe/auth auth})))
+
+(defn verdict
+  "Whether a release run may report success, given what the registry holds
+   for the coordinate it claims to have published. Only :complete passes:
+   every other answer, including `could not look`, fails the run."
+  [{:verify/keys [label state]}]
+  {:verdict/ok? (= :complete state)
+   :verdict/state state
+   :verdict/message
+   (case state
+     :complete (str label " is in the registry (pom and jar).")
+     :absent (str label " is NOT in the registry: the release published nothing.")
+     :partial (str label " is half-published: one of pom/jar is missing."
+                   " Delete the version from the registry and re-release.")
+     :unknown (str label " could not be verified: the registry was unreachable.")
+     :no-url (str label " could not be verified: the target's repository URL"
+                  " variable is unset, so nothing can have been published either.")
+     :no-credentials (str label " could not be verified: the registry credentials"
+                          " are unset, so the deploy step had none either."))})
+
+(m/=> probe-auth [:=> [:cat s/Target [:map-of :string :string]] :map])
+(m/=> verdict [:=> [:cat VerifyInput] Verdict])
+
 (m/=> register! [:=> [:cat s/Target] :keyword])
 (m/=> target [:=> [:cat :keyword] s/Target])
 

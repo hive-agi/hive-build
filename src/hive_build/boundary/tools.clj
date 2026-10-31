@@ -269,6 +269,61 @@
                                                :username (:username creds)
                                                :password (:password creds)}})))))
 
+(defn probe-env
+  "The variables a post-deploy probe of `target` reads: the process
+   environment, falling back for a named repository to the URL in ./deps.edn
+   :mvn/repos and the credentials in ~/.m2/settings.xml, the same two places a
+   credential-free deploy resolves them from."
+  [target]
+  (let [repo-name (:target/repository-name target)
+        url (when repo-name
+              (get-in (edn/read-string (or (io'/read-text "deps.edn") "{}"))
+                      [:mvn/repos repo-name :url]))
+        creds (when repo-name (settings-credentials repo-name))
+        fallback (into {} (remove (comp str/blank? val))
+                       (cond-> {}
+                         (:target/repo-url-env target) (assoc (:target/repo-url-env target) (str url))
+                         (:target/username-env target) (assoc (:target/username-env target) (str (:username creds)))
+                         (:target/password-env target) (assoc (:target/password-env target) (str (:password creds)))))]
+    (merge fallback (io'/env-some (publish/required-env target)))))
+
+(defn published-state
+  "What the registry of `target` holds for `project`'s coordinate, probed with
+   `env` through `head-fn` (url auth -> :present | :absent | :unreachable).
+   A probe that cannot be made answers why instead of guessing."
+  [project target env head-fn]
+  (let [{:probe/keys [url auth skip]} (publish/probe-auth target env)
+        coordinate (:project/coordinate project)]
+    (or skip
+        (publish/registry-state (head-fn (naming/pom-url url coordinate) auth)
+                                (head-fn (naming/jar-url url coordinate) auth)))))
+
+(defn verify-published!
+  "Assert the EFFECT of a release: `project`'s coordinate is in its target's
+   registry. Prints the verdict and returns it; throws unless the pom and the
+   jar are both there. A package with :publish :none has nothing to verify.
+
+   `opts` may supply :env and :head-fn, so the check runs without a registry."
+  ([project] (verify-published! project {}))
+  ([project {:keys [env head-fn]}]
+   (let [target (publish/target (:project/target-id project))]
+     (if-not (:target/publishes? target)
+       (do (println "Nothing to verify:" (naming/coordinate-label (:project/coordinate project))
+                    "has :publish :none.")
+           nil)
+       (let [state (published-state project target
+                                    (or env (probe-env target))
+                                    (or head-fn io'/head-status))
+             v (publish/verdict
+                {:verify/label (str (naming/coordinate-label (:project/coordinate project))
+                                    " " (get-in project [:project/coordinate :coordinate/version]))
+                 :verify/state state})]
+         (println (:verdict/message v))
+         (when-not (:verdict/ok? v)
+           (throw (ex-info (:verdict/message v) {:reason :release/not-published
+                                                 :state state})))
+         v)))))
+
 (defn- shipped-classes
   "Internal names of the .class files already under `class-dir`."
   [class-dir]
