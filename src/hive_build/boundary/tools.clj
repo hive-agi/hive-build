@@ -487,7 +487,8 @@
       {:basis (pom-basis (:ctx/project ctx))
        :jar-file (:step/jar-file step)
        :namespaces (:step/namespaces step)
-       :java-opts (:step/java-opts step)}))
+       :java-opts (:step/java-opts step)
+       :isolated? (:step/isolated? step true)}))
 
    :step/publish
    (fn [ctx step]
