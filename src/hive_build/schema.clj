@@ -123,7 +123,8 @@
    [:project/strict-opacity? :boolean]
    [:project/strict-source-entries? :boolean]
    [:project/source-namespaces [:vector NsSymbol]]
-   [:project/ship-sources? {:optional true} :boolean]])
+   [:project/ship-sources? {:optional true} :boolean]
+   [:project/verify-load-isolated? {:optional true} :boolean]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -265,7 +266,8 @@
      [:step/kind [:= :step/verify-load]]
      [:step/jar-file [:string {:min 1}]]
      [:step/namespaces [:vector NsSymbol]]
-     [:step/java-opts [:vector :string]]]]
+     [:step/java-opts [:vector :string]]
+     [:step/isolated? :boolean]]]
 
    [:step/publish
     [:map {:closed true}
