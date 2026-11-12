@@ -24,7 +24,11 @@
 
 (defn resolve-version
   "The version this repository releases: ./VERSION when present, otherwise
-   0.{:minor}.{commit count}."
+   0.{:minor}.{commit count}.
+
+   :minor in version.edn is read ONLY on that fallback path. In a repository
+   that has a ./VERSION file it is inert, is not the version, and should be
+   dropped so no reader mistakes it for one."
   [cfg]
   (or (some-> (io'/read-text "VERSION") str/trim not-empty)
       (str "0." (:minor cfg 0) "." (b/git-count-revs nil))))
