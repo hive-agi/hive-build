@@ -7,10 +7,13 @@
      :build {:deps {io.github.hive-agi/hive-build {:mvn/version \"0.1.0\"}}
              :ns-default hive-build.api}
 
-   Coordinates come from ./version.edn, the version from ./VERSION:
+   Coordinates come from ./version.edn, the version from ./VERSION.
+   :minor is a fallback only, read when ./VERSION is absent (the version is
+   then 0.{:minor}.{commit count}); with a VERSION file it is inert and is
+   not the version, so leave it out:
 
      {:lib      io.github.hive-agi/hive-thing
-      :minor    1
+      :minor    1                    ; optional, ONLY used without ./VERSION
       :license  {:name \"MIT\" :url \"https://opensource.org/licenses/MIT\"}
       :scm-url  \"https://github.com/hive-agi/hive-thing\"
       :src-dirs [\"src\"]
