@@ -25,6 +25,30 @@
   (testing "a project with no source dirs still lints its tests"
     (is (= ["test"] (lint/lint-candidates [])))))
 
+(st/deftrifecta-from-schema test-roots
+  hive-build.promote.lint/test-roots
+  {:in [:vector [:enum "src" "resources" "test" "test-swarm" "test-resources" "dev" "target"]]
+   :out [:vector [:string {:min 1}]]
+   :rel (fn [in out]
+          (let [root? #(and (str/starts-with? % "test")
+                            (not (str/ends-with? % "-resources")))]
+            (and (= out (vec (sort (distinct out))))
+                 (every? root? out)
+                 (= (set out) (set (filter root? in))))))
+   :mutation false
+   :num-tests 200})
+
+(deftest every-test-root-on-the-tree-is-linted
+  (testing "a second test root is linted, not silently skipped"
+    (is (= ["src" "test" "test-swarm"]
+           (lint/lint-candidates ["src" "resources"] ["src" "resources" "test-swarm" "test" "dev"]))))
+  (testing "no test* directory on the tree falls back to test/, which the caller drops when absent"
+    (is (= ["src" "test"] (lint/lint-candidates ["src"] ["src" "dev"]))))
+  (testing "test-resources holds fixtures and is not linted"
+    (is (= ["src" "test"] (lint/lint-candidates ["src"] ["src" "test" "test-resources"]))))
+  (testing "a root named both as a source dir and a test root appears once"
+    (is (= ["src" "test"] (lint/lint-candidates ["src" "test"] ["src" "test"])))))
+
 (deftest a-classpath-drops-what-is-absent
   (is (= (str "a" sep "b") (lint/classpath ["a" "b"])))
   (is (= "a" (lint/classpath ["a" nil])))

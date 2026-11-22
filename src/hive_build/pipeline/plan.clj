@@ -92,7 +92,7 @@
                         allow-foreign-classes strict-foreign-classes?
                         publishable-sources strict-opacity?
                         strict-source-entries? source-namespaces
-                        ship-sources?]} project
+                        ship-sources? verify-load-isolated?]} project
         {:facts/keys [source-roots resource-roots namespaces preload ns-files]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)
         compiled     (vec (remove (set source-namespaces) namespaces))
@@ -174,7 +174,10 @@
            {:step/kind :step/verify-load
             :step/jar-file jar-file
             :step/namespaces compiled
-            :step/java-opts aot-java-opts}
+            :step/java-opts aot-java-opts
+            ;; One JVM per namespace unless the project opts out: a shared
+            ;; JVM lets one namespace's deps hide another's missing ones.
+            :step/isolated? (not (false? verify-load-isolated?))}
            (announce (str "Built AOT " (label project) " " (released project)
                           " -> " jar-file
                           " (" (count compiled) " ns, own .class only"
