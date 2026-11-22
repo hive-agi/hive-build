@@ -125,7 +125,7 @@
   [url auth]
   (try
     (let [conn (doto ^java.net.HttpURLConnection
-                     (.openConnection (java.net.URI. url))
+                     (.openConnection (.toURL (java.net.URI. url)))
                  (.setRequestMethod "HEAD")
                  (.setConnectTimeout 10000)
                  (.setReadTimeout 10000))]
