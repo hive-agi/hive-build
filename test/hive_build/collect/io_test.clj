@@ -96,3 +96,27 @@
             which would silently skip a release"
     (is (false? (io'/head-ok? "http://127.0.0.1:1/nope.pom" nil)))
     (is (false? (io'/head-ok? "not a url" nil)))))
+
+(deftest head-status-asks-a-real-registry
+  (testing "a URL string is opened as a URL: a 200 is :present, any other answer :absent, and
+            no listener :unreachable. A java.net.URI has no openConnection, so calling it
+            there made every HEAD read as :unreachable and every verify-published fail,
+            which the false-only test above could not see."
+    (let [server (doto (com.sun.net.httpserver.HttpServer/create (java.net.InetSocketAddress. "127.0.0.1" 0) 0)
+                   (.createContext "/" (reify com.sun.net.httpserver.HttpHandler
+                                         (handle [_ ex]
+                                           (let [found? (= "/present.jar" (.getPath (.getRequestURI ex)))
+                                                 authed? (= "Basic x" (.getFirst (.getRequestHeaders ex) "Authorization"))
+                                                 code (cond (not found?) 404 authed? 200 :else 401)]
+                                             (.sendResponseHeaders ex code -1)
+                                             (.close ex)))))
+                   (.start))
+          base   (str "http://127.0.0.1:" (.getPort (.getAddress server)))]
+      (try
+        (is (= :present (io'/head-status (str base "/present.jar") "Basic x")) "the auth header is sent")
+        (is (= :absent (io'/head-status (str base "/present.jar") nil)) "a 401 is the registry's own answer")
+        (is (= :absent (io'/head-status (str base "/missing.jar") "Basic x")))
+        (is (true? (io'/head-ok? (str base "/present.jar") "Basic x")))
+        (finally (.stop server 0)))
+      (is (= :unreachable (io'/head-status (str base "/present.jar") "Basic x"))
+          "once the server is gone"))))
