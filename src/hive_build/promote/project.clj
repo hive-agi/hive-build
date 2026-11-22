@@ -129,7 +129,8 @@
                                                  cfg
                                                  (publish/private? target-id)))
        :project/source-namespaces (mapv symbol (:aot/source-namespaces cfg []))
-       :project/ship-sources?    (boolean (:aot/ship-sources cfg false))})))
+       :project/ship-sources?    (boolean (:aot/ship-sources cfg false))
+       :project/verify-load-isolated? (boolean (:aot/verify-load-isolated cfg true))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])
