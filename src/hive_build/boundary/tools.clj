@@ -24,7 +24,11 @@
 
 (defn resolve-version
   "The version this repository releases: ./VERSION when present, otherwise
-   0.{:minor}.{commit count}."
+   0.{:minor}.{commit count}.
+
+   :minor in version.edn is read ONLY on that fallback path. In a repository
+   that has a ./VERSION file it is inert, is not the version, and should be
+   dropped so no reader mistakes it for one."
   [cfg]
   (or (some-> (io'/read-text "VERSION") str/trim not-empty)
       (str "0." (:minor cfg 0) "." (b/git-count-revs nil))))
@@ -209,6 +213,26 @@
                      :aliases (cond-> [::staged]
                                 declared? (conj :provided)
                                 provided  (conj ::overlay-provided))})))
+
+(defn uber-basis
+  "The basis an uberjar pulls dependency jars from: `deps` (a parsed deps.edn
+   map, or the path to one) resolved on `aliases`.
+
+   An uberjar is self-contained, so unlike the AOT jar it must carry every dep
+   the project declares — including the ones a pom would mark provided. The
+   aliases are therefore the caller's, never an extra-paths trick."
+  [deps aliases]
+  (b/create-basis (cond-> {:project deps :user :standard}
+                    (seq aliases) (assoc :aliases (vec aliases)))))
+
+(defn project-uber-basis
+  "The uberjar basis for the repository in the current working directory: its
+   own deps.edn, on `aliases`.
+
+   Injected as :ctx/uber-basis-fn so a test can build a fixture project's
+   uberjar without reading this repository's deps.edn."
+  [aliases]
+  (uber-basis (or (io'/read-edn "deps.edn") {}) aliases))
 
 ;; ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -525,6 +549,18 @@
    (fn [_ctx step]
      (b/jar {:class-dir (:step/class-dir step) :jar-file (:step/jar-file step)}))
 
+   ;; :step/main is passed as :main only when it names a namespace; b/uber
+   ;; gen-classes it into the manifest. Absent, the jar has no Main-Class and
+   ;; java -cp is the only way in, which is what a kernel jar wants.
+   :step/uber
+   (fn [ctx step]
+     (b/uber (cond-> {:class-dir (:step/class-dir step)
+                      :uber-file (:step/uber-file step)
+                      :basis ((or (:ctx/uber-basis-fn ctx) project-uber-basis)
+                              (:step/aliases step))}
+               (:step/main step) (assoc :main (:step/main step))))
+     (:step/uber-file step))
+
    :step/verify-excluded
    (fn [_ctx step]
      (let [jar-file (:step/jar-file step)
@@ -542,7 +578,8 @@
       {:basis (pom-basis (:ctx/project ctx))
        :jar-file (:step/jar-file step)
        :namespaces (:step/namespaces step)
-       :java-opts (:step/java-opts step)}))
+       :java-opts (:step/java-opts step)
+       :isolated? (:step/isolated? step true)}))
 
    :step/publish
    (fn [ctx step]
@@ -578,11 +615,14 @@
 
 (defn context
   "The execution context for `project`: the overlay an AOT compile needs (nil
-   for tasks that do not compile), and the deploy function, which is injected
-   so a release can be exercised without a registry."
+   for tasks that do not compile), the deploy function, which is injected so a
+   release can be exercised without a registry, and the uberjar basis function,
+   injected for the same reason."
   ([project] (context project nil nil))
   ([project overlay] (context project overlay nil))
-  ([project overlay deploy-fn]
+  ([project overlay deploy-fn] (context project overlay deploy-fn nil))
+  ([project overlay deploy-fn uber-basis-fn]
    {:ctx/project project
     :ctx/overlay overlay
-    :ctx/deploy-fn deploy-fn}))
+    :ctx/deploy-fn deploy-fn
+    :ctx/uber-basis-fn uber-basis-fn}))

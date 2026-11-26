@@ -123,7 +123,16 @@
    [:project/strict-opacity? :boolean]
    [:project/strict-source-entries? :boolean]
    [:project/source-namespaces [:vector NsSymbol]]
-   [:project/ship-sources? {:optional true} :boolean]])
+   [:project/ship-sources? {:optional true} :boolean]
+   [:project/verify-load-isolated? {:optional true} :boolean]
+   ;; The self-contained jar: where it is written, the -main namespace its
+   ;; manifest names, the namespaces AOT-compiled into it (none by default),
+   ;; and the aliases its dep basis is resolved on. Optional here because only
+   ;; the uber task reads them, and `project` always supplies all four.
+   [:project/uber-file {:optional true} [:string {:min 1}]]
+   [:project/uber-main {:optional true} [:maybe :symbol]]
+   [:project/uber-aot {:optional true} [:vector NsSymbol]]
+   [:project/uber-basis-aliases {:optional true} [:vector :keyword]]])
 
 ;; ── Facts ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +172,7 @@
 ;; ── Plan ───────────────────────────────────────────────────────────────────
 
 (def Task
-  [:enum :task/clean :task/jar :task/jar-aot :task/install :task/deploy])
+  [:enum :task/clean :task/jar :task/jar-aot :task/uber :task/install :task/deploy])
 
 (def Step
   "One executable unit of a release. A step names an effect and carries every
@@ -249,6 +258,18 @@
      [:step/class-dir [:string {:min 1}]]
      [:step/jar-file [:string {:min 1}]]]]
 
+   ;; An uberjar is a different effect from a jar over one class-dir: it
+   ;; expands every dependency jar onto this project's class dir, so it is a
+   ;; step of its own rather than a flag on :step/jar.
+   [:step/uber
+    [:map {:closed true}
+     [:step/kind [:= :step/uber]]
+     [:step/class-dir [:string {:min 1}]]
+     [:step/uber-file [:string {:min 1}]]
+     ;; nil: no Main-Class, so java -jar is refused and java -cp is the way in.
+     [:step/main [:maybe :symbol]]
+     [:step/aliases [:vector :keyword]]]]
+
    [:step/verify-excluded
     [:map {:closed true}
      [:step/kind [:= :step/verify-excluded]]
@@ -265,7 +286,8 @@
      [:step/kind [:= :step/verify-load]]
      [:step/jar-file [:string {:min 1}]]
      [:step/namespaces [:vector NsSymbol]]
-     [:step/java-opts [:vector :string]]]]
+     [:step/java-opts [:vector :string]]
+     [:step/isolated? :boolean]]]
 
    [:step/publish
     [:map {:closed true}

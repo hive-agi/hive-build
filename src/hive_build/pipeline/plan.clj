@@ -92,7 +92,7 @@
                         allow-foreign-classes strict-foreign-classes?
                         publishable-sources strict-opacity?
                         strict-source-entries? source-namespaces
-                        ship-sources?]} project
+                        ship-sources? verify-load-isolated?]} project
         {:facts/keys [source-roots resource-roots namespaces preload ns-files]} facts
         protocol-namespaces (mapv #(symbol (namespace %)) package-protocols)
         compiled     (vec (remove (set source-namespaces) namespaces))
@@ -174,7 +174,10 @@
            {:step/kind :step/verify-load
             :step/jar-file jar-file
             :step/namespaces compiled
-            :step/java-opts aot-java-opts}
+            :step/java-opts aot-java-opts
+            ;; One JVM per namespace unless the project opts out: a shared
+            ;; JVM lets one namespace's deps hide another's missing ones.
+            :step/isolated? (not (false? verify-load-isolated?))}
            (announce (str "Built AOT " (label project) " " (released project)
                           " -> " jar-file
                           " (" (count compiled) " ns, own .class only"
@@ -182,6 +185,64 @@
                             (str "; " (count source-files) " ns as source"))
                           (when ship-sources? "; sources shipped")
                           ")"))])))
+
+;; An uberjar is deliberately NOT a build task with a plan: `b/uber` expands
+;; every dependency jar onto one class dir, and none of the release steps
+;; (pom, publish, opacity audit) apply to it. It is a delivery artifact, so its
+;; steps are stated here and its work is one handler call.
+(defmethod steps :task/uber
+  [_ project facts]
+  (let [{:project/keys [target-dir class-dir uber-file uber-main uber-aot
+                        uber-basis-aliases src-dirs]} project
+        uber-aot (vec uber-aot)
+        uber-main (some-> uber-main symbol)
+        uber-basis-aliases (vec uber-basis-aliases)
+        ;; b/uber's :main writes ONE manifest attribute. The class it names
+        ;; exists only if compile-clj generated it, so a Main-Class naming a
+        ;; namespace that was not AOT-compiled (with :gen-class in it) makes a
+        ;; jar that builds, ships, and then answers ClassNotFoundException to
+        ;; the first java -jar. Measured, not assumed: the first run of the
+        ;; uber suite failed exactly there, so this is refused BEFORE any
+        ;; effect rather than announced after one.
+        main-unrunnable? (boolean (and uber-main (not (some #{uber-main} uber-aot))))]
+    (if main-unrunnable?
+      [{:step/kind :step/refuse
+        :step/reason :uber/main-not-compiled
+        :step/message
+        (str "Refusing an uberjar whose Main-Class would not exist: " uber-main
+             " is named as :uber/main but is not AOT-compiled, so the manifest"
+             " would name a class nothing generated. Add it to :uber/aot and put"
+             " (:gen-class) in its ns form, or drop :uber/main and launch with"
+             " java -cp <jar> clojure.main -m.")}]
+      (into []
+            (remove nil?)
+            [(verify-packaged-step facts)
+             {:step/kind :step/clean :step/path target-dir}
+             ;; Sources and resources land in class-dir first; b/uber then adds
+             ;; every dependency jar's entries around them.
+             {:step/kind :step/copy-dir :step/src-dirs (vec src-dirs) :step/target-dir class-dir}
+             ;; AOT is OPTIONAL and default none: a record compiled against a
+             ;; protocol whose library ships as source hard-references an
+             ;; interface that only exists in the loader at runtime, so the
+             ;; uberjar would link and then fail (axiom 20260727002436-53e3767e).
+             (when (seq uber-aot)
+               {:step/kind :step/compile
+                :step/src-dirs (vec src-dirs)
+                :step/ns-compile uber-aot
+                :step/class-dir class-dir
+                :step/elide-meta []
+                :step/java-opts []})
+             {:step/kind :step/uber
+              :step/class-dir class-dir
+              :step/uber-file uber-file
+              :step/main uber-main
+              :step/aliases uber-basis-aliases}
+             (announce
+              (str "Built uberjar " (label project) " " (released project)
+                   " -> " uber-file
+                   (when uber-main (str " (main " uber-main ")"))
+                   (when (seq uber-aot)
+                     (str " (" (count uber-aot) " ns AOT)"))))]))))
 
 (defn artifact-task
   "The build task that produces `kind`."
@@ -194,10 +255,14 @@
   "True when `task` on `project` will AOT-compile.
 
    Only a compiling task consults ./local.deps.edn, so a source-jar build never
-   depends on — or fails on — a developer's local overlay file."
+   depends on — or fails on — a developer's local overlay file.
+
+   An uberjar compiles only what version.edn asks for under :uber/aot, which
+   defaults to nothing."
   [task project]
   (case task
     :task/jar-aot true
+    :task/uber (boolean (seq (:project/uber-aot project)))
     (:task/install :task/deploy)
     (= :artifact/aot (:target/artifact-kind (publish/target (:project/target-id project))))
     false))

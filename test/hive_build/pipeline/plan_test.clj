@@ -238,6 +238,18 @@
     (is (< (index-of p :step/normalize) (index-of p :step/verify-load)))
     (is (< (index-of p :step/verify-load) (index-of p :step/announce)))))
 
+(deftest the-load-verify-is-one-jvm-per-namespace-unless-opted-out
+  (testing "isolated by default: a shared JVM masks a missing dependency"
+    (is (true? (:step/isolated?
+                (step-of (plan/plan :task/jar-aot (project :gitea) facts)
+                         :step/verify-load)))))
+  (testing ":aot/verify-load-isolated false trades the guarantee for one JVM"
+    (is (false? (:step/isolated?
+                 (step-of (plan/plan :task/jar-aot
+                                     (project :gitea :project/verify-load-isolated? false)
+                                     facts)
+                          :step/verify-load))))))
+
 ;; ── The publish decision ──────────────────────────────────────────────────
 
 (deftest a-package-that-does-not-ship-builds-nothing

@@ -7,10 +7,13 @@
      :build {:deps {io.github.hive-agi/hive-build {:mvn/version \"0.1.0\"}}
              :ns-default hive-build.api}
 
-   Coordinates come from ./version.edn, the version from ./VERSION:
+   Coordinates come from ./version.edn, the version from ./VERSION.
+   :minor is a fallback only, read when ./VERSION is absent (the version is
+   then 0.{:minor}.{commit count}); with a VERSION file it is inert and is
+   not the version, so leave it out:
 
      {:lib      io.github.hive-agi/hive-thing
-      :minor    1
+      :minor    1                    ; optional, ONLY used without ./VERSION
       :license  {:name \"MIT\" :url \"https://opensource.org/licenses/MIT\"}
       :scm-url  \"https://github.com/hive-agi/hive-thing\"
       :src-dirs [\"src\"]
@@ -115,6 +118,24 @@
   "Build the AOT no-source jar: this lib's own .class files + resources only."
   [_]
   (execute! :task/jar-aot {}))
+
+(defn uber
+  "Build the self-contained jar: this project's sources + resources with every
+   dependency jar expanded around them, under target/.
+
+   version.edn options:
+     :uber/main    a namespace symbol; names it in the manifest so java -jar
+                   works. Absent, the jar has no Main-Class.
+     :uber/aot     namespaces to AOT-compile into it. Default none: a record
+                   compiled against a protocol whose library ships as source
+                   hard-references an interface that only exists in the loader
+                   at runtime, so the jar links and then fails.
+     :uber/aliases aliases the dep basis resolves on.
+
+   Never publishes. A jar-shaped competitor to :publish, so it carries no pom
+   and no target."
+  [_]
+  (execute! :task/uber {}))
 
 (defn install
   "Build + install to the local ~/.m2 repository (offline)."
@@ -226,6 +247,8 @@
 
    :aliases    deps aliases whose classpath is scanned  (default [:test])
    :paths      lint targets                             (default src + test)
+               the default lints EVERY top-level test* root (test,
+               test-swarm, ...), discovered from the tree
    :fail-level :error (default) | :warning | nil to report only"
   [{:keys [aliases paths fail-level]
     :or {aliases [:test] fail-level :error}}]
@@ -235,7 +258,8 @@
           cp (lint/classpath [(tools/deps-classpath aliases) (tools/bb-classpath)])
           targets (or (seq paths)
                       (filterv io'/exists?
-                               (lint/lint-candidates (:project/src-dirs project))))]
+                               (lint/lint-candidates (:project/src-dirs project)
+                                                     (io'/dir-names "."))))]
       (tools/run-process (lint/sync-command cp))
       (let [{:keys [exit]} (tools/run-process (lint/lint-command (vec targets) fail-level))]
         (when (and fail-level (pos? exit))

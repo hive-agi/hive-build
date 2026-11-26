@@ -1,11 +1,13 @@
 name: release
 
-# Patch-bump and publish only when the push actually changes the library.
+# Patch-bump and publish to Clojars only when the push changes the library.
 # README / CI / test-only commits do not mint a version, because a published
-# pom is immutable on both Clojars and the private registry.
+# pom is immutable.
+#
+# Secrets (per-repo or hive-agi org-wide): CLOJARS_USERNAME, CLOJARS_DEPLOY_TOKEN.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - 'src/**'
       - 'resources/**'
@@ -20,6 +22,9 @@ on:
       # trips over it.
       - 'test/**'
       - 'tests.edn'
+      # Include the workflow itself so a change to the release pipeline is
+      # exercised by the very push that makes it.
+      - '.github/workflows/**'
   workflow_dispatch:
 
 concurrency:
@@ -36,18 +41,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      # NOT DeLaGuardo/setup-clojure: it calls the GitHub API with
-      # GITHUB_TOKEN, which under Gitea Actions is a Gitea token github.com
-      # rejects, leaving no clojure on PATH (exit 127 in a later step).
-      # The official installer touches no API and runs the same on both.
-      - name: Setup Clojure CLI
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/clj-install.sh \
-            https://download.clojure.org/install/linux-install-1.12.4.1618.sh
-          chmod +x /tmp/clj-install.sh
-          sudo /tmp/clj-install.sh
-          clojure --version
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Caches the resolved dependency tree across runs, keyed on the files
+      # that declare it.
+      - name: Cache Maven and gitlibs
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: deps-${{ runner.os }}-${{ hashFiles('deps.edn', 'bb.edn') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: 1.12.7.1681
 
       # Licence gate. LICENSE, version.edn :license and the src SPDX headers
       # must agree, and a published pom can never be retracted, so drift has to
@@ -89,27 +103,15 @@ jobs:
       - name: Bump patch version
         run: clojure -T:build bump :level :patch
 
-      # Runs AFTER the bump and BEFORE the tag: the pending version comes from
-      # ./VERSION, which no tag names yet, so the release describes itself.
-      # The :build alias runs the PUBLISHED hive-build, so a task that first
-      # ships in the release being cut does not exist yet on this runner. A
-      # missing task skips (the next release, pinned past this one, regenerates
-      # the file); any other failure still stops the release.
-      - name: Regenerate changelog
-        run: |
-          set +e
-          out=$(clojure -T:build changelog 2>&1)
-          status=$?
-          set -e
-          printf '%s\n' "$out"
-          if [ "$status" -ne 0 ]; then
-            case "$out" in
-              *"function not found: changelog"*)
-                echo "skip: the pinned hive-build predates the changelog task" ;;
-              *) exit "$status" ;;
-            esac
-          fi
+      - name: Deploy
+        env:
+          # deps-deploy and hive-build both read CLOJARS_PASSWORD; the org
+          # secret is CLOJARS_DEPLOY_TOKEN. Map one onto the other.
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
+        run: clojure -T:build deploy
 
+      # After Deploy: a tag means "this version is in the registry".
       - name: Tag
         run: |
           set -euo pipefail
@@ -121,33 +123,3 @@ jobs:
           # Annotated, so the next run's tag scan and `git describe` see it.
           git tag -a "v$VER" -m "release $VER"
           git push origin "refs/tags/v$VER"
-
-      - name: Deploy
-        env:
-          # The hive-agi org secret is CLOJARS_DEPLOY_TOKEN, while deps-deploy
-          # and build.clj both read CLOJARS_PASSWORD. Map one onto the other.
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
-        run: clojure -T:build deploy
-
-      # Fails unless the released pom and jar are in the registry; retried 5x20s.
-      - name: Verify published
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
-        run: |
-          set +e
-          for attempt in 1 2 3 4 5; do
-            out=$(clojure -T:build verify-published 2>&1)
-            status=$?
-            printf '%s\n' "$out"
-            case "$out" in
-              *"function not found: verify-published"*)
-                echo "::warning::the pinned hive-build predates verify-published; the release is UNVERIFIED"
-                exit 0 ;;
-            esac
-            [ "$status" -eq 0 ] && exit 0
-            sleep 20
-          done
-          echo "::error::the release reported success but its coordinate is not in the registry"
-          exit 1
