@@ -130,7 +130,12 @@
                                                  (publish/private? target-id)))
        :project/source-namespaces (mapv symbol (:aot/source-namespaces cfg []))
        :project/ship-sources?    (boolean (:aot/ship-sources cfg false))
-       :project/verify-load-isolated? (boolean (:aot/verify-load-isolated cfg true))})))
+       :project/verify-load-isolated? (boolean (:aot/verify-load-isolated cfg true))
+       :project/uber-file        (str target-dir "/" (get-in coord [:coordinate/artifact-id])
+                                       "-" version "-uber.jar")
+       :project/uber-main        (some-> (:uber/main cfg) symbol)
+       :project/uber-aot         (mapv symbol (:uber/aot cfg []))
+       :project/uber-basis-aliases (vec (:uber/aliases cfg []))})))
 
 (m/=> source-file? [:=> [:cat :string] :boolean])
 (m/=> source-root? [:=> [:cat [:sequential :string]] :boolean])

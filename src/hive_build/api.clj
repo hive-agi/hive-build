@@ -119,6 +119,24 @@
   [_]
   (execute! :task/jar-aot {}))
 
+(defn uber
+  "Build the self-contained jar: this project's sources + resources with every
+   dependency jar expanded around them, under target/.
+
+   version.edn options:
+     :uber/main    a namespace symbol; names it in the manifest so java -jar
+                   works. Absent, the jar has no Main-Class.
+     :uber/aot     namespaces to AOT-compile into it. Default none: a record
+                   compiled against a protocol whose library ships as source
+                   hard-references an interface that only exists in the loader
+                   at runtime, so the jar links and then fails.
+     :uber/aliases aliases the dep basis resolves on.
+
+   Never publishes. A jar-shaped competitor to :publish, so it carries no pom
+   and no target."
+  [_]
+  (execute! :task/uber {}))
+
 (defn install
   "Build + install to the local ~/.m2 repository (offline)."
   [_]
