@@ -48,6 +48,39 @@
       (is (= {"m" #{1}} (:methods (get s "a.b/P"))))
       (is (= #{1} (:arities (get s "a.b/f")))))))
 
+(deftest a-guardrails-protocol-is-the-same-protocol
+  (testing "moving a defprotocol to gr/>defprotocol keeps the protocol and its
+            arities: the gspec counts its argument specs, `this` included
+            (hive-contracts.ports/IMemoryResolve)"
+    (let [plain (surface-of (str "(ns a.b) (defonce -g (do (defprotocol P "
+                                 "(m [this id] \"doc\"))))"))
+          gr    (surface-of (str "(ns a.b) (defonce -g (do (gr/>defprotocol P "
+                                 "(m [::P :string => :map] \"doc\"))))"))
+          d     (surface/diff plain gr)]
+      (is (= {"m" #{2}} (:methods (get gr "a.b/P"))))
+      (is (= :defprotocol (:kind (get gr "a.b/P"))))
+      (is (not (surface/breaking? d)) (pr-str (surface/describe d)))))
+  (testing "a gspec's such-that clause after | is not an argument"
+    (let [s (surface-of "(ns a.b) (>defprotocol P (m [::P :int | #(pos? %) => :int]))")]
+      (is (= {"m" #{2}} (:methods (get s "a.b/P"))))))
+  (testing "a protocol narrowed under guardrails is still caught"
+    (let [d (surface/diff (surface-of "(ns a.b) (defprotocol P (m [this] [this x]))")
+                          (surface-of "(ns a.b) (gr/>defprotocol P (m [::P => :int]))"))]
+      (is (= [{:qn "a.b/P" :method "m" :change :arities-lost :lost [2]}]
+             (:methods-lost d))))))
+
+(deftest a-guardrails-defn-is-the-same-defn
+  (let [s (surface-of (str "(ns a.b) (gr/>defn f [x] [:int => :int] x) "
+                           "(>defn g ([x] [:int => :int] x) ([x y] [:int :int => :int] y)) "
+                           "(gr/>defn- h [x] [:int => :int] x)"))]
+    (is (= {:kind :defn :arities #{1}} (get s "a.b/f")))
+    (is (= #{1 2} (:arities (get s "a.b/g"))))
+    (is (not (contains? s "a.b/h")) ">defn- leaked into the frozen surface")
+    (is (not (surface/breaking? (surface/diff (surface-of "(ns a.b) (defn f [x] x)") s))))))
+
+(deftest a-qualified-head-that-is-not-guardrails-is-not-a-def
+  (is (= {} (surface-of "(ns a.b) (s/def foo 1) (m/defn bar [x] x)"))))
+
 (deftest an-unreadable-file-yields-no-surface-not-an-exception
   (is (= [] (gitf/read-forms "(ns a.b) (defn oops [")))
   (is (= {} (surface-of "(defn no-ns [x] x)"))))
