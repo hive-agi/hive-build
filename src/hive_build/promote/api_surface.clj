@@ -23,12 +23,35 @@
       (:private meta-map)
       (:private (meta sym))))
 
+(def ^:private guardrails-heads
+  "Guardrails' checked twins of the core def forms, by unqualified name. Their
+   head arrives qualified by whatever alias the namespace chose (`gr/>defn`,
+   `>defprotocol`), so they are matched on name and read as the core form."
+  {">defn" 'defn, ">defn-" 'defn-, ">defprotocol" 'defprotocol})
+
+(defn- core-head
+  "The core def form `head` stands for: itself, or the core twin of a
+   guardrails form."
+  [head]
+  (if (symbol? head)
+    (get guardrails-heads (name head) head)
+    head))
+
+(defn- gspec?
+  "True for a guardrails gspec vector, `[arg-specs... => ret]`."
+  [v]
+  (boolean (some #{'=>} v)))
+
 (defn- arity-of
-  "An argument vector's arity: its fixed count, or :variadic when it has an &."
+  "An argument vector's arity: its fixed count, or :variadic when it has an &.
+   A guardrails gspec counts its argument specs, the ones before `|` or `=>`."
   [argv]
-  (if (some #{'&} argv)
-    :variadic
-    (count argv)))
+  (let [args (if (gspec? argv)
+               (take-while (complement #{'| '=>}) argv)
+               argv)]
+    (if (some #{'&} args)
+      :variadic
+      (count args))))
 
 (defn- fn-arities
   "Arities declared by a defn body: single `[args]` or several `([args] ...)`."
@@ -69,7 +92,7 @@
 
 (defn- form->entry
   [ns-name form]
-  (let [[head sym & body] form]
+  (let [[head sym & body] (cons (core-head (first form)) (rest form))]
     (when (and (symbol? head) (symbol? sym) (contains? public-def-forms head))
       (let [meta-map (if (map? (first body)) (first body) {})]
         (when-not (private-form? head sym meta-map)
